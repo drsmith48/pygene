@@ -7,6 +7,10 @@ from . import utils
 
 field_names = ['phi', 'A_para', 'B_para']
 mom_names = ['dens', 'T_para', 'T_perp', 'Q_para', 'Q_perp', 'u_para']
+dbmin = -35
+
+def log1010(data):
+    return 10*np.log10(data)
 
 class _DataABC(object):
 
@@ -46,7 +50,6 @@ class _DataABC(object):
                 value = float(te.unpack(f.read(tesize))[1])
                 self.time = np.append(self.time, value)
                 f.seek(leapfld,1)
-        print('field time slices: {}'.format(self.time.size))
 
     def _make_grids(self):
         delkx = 2*np.pi / self.params['lx']
@@ -67,9 +70,16 @@ class _DataABC(object):
     def _plot_title(self):
         title = self.fieldname
         if self.species:
-            title += ' ('+self.species+')'
+            title += ' ({})'.format(self.species[0:4])
         if self.ky:
             title += ' (ky={:.3f})'.format(self.ky)
+        title += ' '+self.plotlabel
+        if self.tind.size==1:
+            timestr = ' t={:.2f}'.format(self.timeslices[0])
+        else:
+            timestr = ' t={:.2f}-{:.2f}'.format(self.timeslices[0],
+                                                self.timeslices[-1])
+        title += timestr
         return title
 
     def get_data(self, tind=-1, ifield=0, nosingle=False):
@@ -81,9 +91,13 @@ class _DataABC(object):
             raise ValueError('ifields {} must be < nfields {}'.format(
                     ifield, self.nfields))
         self.ifield = ifield
-        self.tind = np.array(tind, ndmin=1)
+        if isinstance(tind, (list,tuple)):
+            self.tind = np.arange(tind[0], tind[1]+1, 1, dtype=np.int)
+        else:
+            self.tind = np.array(tind, ndmin=1)
         self.fieldname = self.fieldnames[self.ifield]
         self.tind[self.tind<0] += self.time.size
+        self.timeslices = self.time[self.tind]
         intsize, entrysize, leapfld, nprt, npct, te, tesize = self.binary
         data = np.empty((self.dims[0],
                          self.dims[1],
@@ -99,7 +113,7 @@ class _DataABC(object):
                 flatdata = np.fromfile(f, count=self.dims.prod(), dtype=npct)
                 data[:,:,:,i] = flatdata.reshape(tuple(self.dims[::-1])).transpose()
         # make finite
-        # data[data==0] = np.finfo(dtype=np.complex).eps
+#        data[data==0] = np.NaN
         # roll in kx dimension to order from kxmin to kxmax
         data = np.roll(data, self.dims[0]//2-1, axis=0)
         if nosingle:
@@ -142,142 +156,61 @@ class _DataABC(object):
             fig, ax = plt.subplots(nrows=1, ncols=2, figsize=figsize)
         # kx spectrum
         plt.sca(ax.flat[0])
-        plt.plot(self.kxgrid, np.log10(np.mean(data, axis=(1,2))))
+        plt.plot(self.kxgrid, log1010(np.mean(data, axis=(1,2))))
+        plt.ylim(dbmin,None)
         plt.xlabel('kx')
-        title = self._plot_title() + ' (ky,z,t avg.)'
+        title = self._plot_title()
         plt.title(title)
         # kx, z spectrum
         plt.sca(ax.flat[1])
-        plt.imshow(np.log10(np.mean(data, axis=1)).transpose(),
+        plt.imshow(log1010(np.mean(data, axis=1)).transpose(),
                        aspect='auto',
                        extent=[self.kxgrid[0], self.kxgrid[-1],
                                self.zgrid[0], self.zgrid[-1]],
                                origin='lower',
                                cmap=mpl.cm.gnuplot,
                                interpolation='bilinear')
+        plt.clim(dbmin,0)
         plt.xlabel('kx')
         plt.ylabel('z')
-        title = self._plot_title() + ' (ky,t avg.)'
         plt.title(title)
         plt.colorbar()
         if nky>1:
             # ky spectrum
             plt.sca(ax.flat[3])
-            plt.plot(self.kygrid, np.log10(np.mean(data, axis=(0,2))))
+            plt.plot(self.kygrid, log1010(np.mean(data, axis=(0,2))))
             plt.xlabel('ky')
-            title = self._plot_title() + ' (kx,z,t avg.)'
+            plt.ylim(dbmin,None)
             plt.title(title)
             # kx,ky spectrum
             plt.sca(ax.flat[4])
-            plt.imshow(np.log10(np.mean(data, axis=2)).transpose(),
+            plt.imshow(log1010(np.mean(data, axis=2)).transpose(),
                        aspect='auto',
                        extent=[self.kxgrid[0], self.kxgrid[-1],
                                self.kygrid[0], self.kygrid[-1]],
                        origin='lower',
                        cmap=mpl.cm.gnuplot,
                        interpolation='bilinear')
+            plt.clim(dbmin,0)
             plt.xlabel('kx')
             plt.ylabel('ky')
-            title = self._plot_title() + ' (z,t avg.)'
             plt.title(title)
             plt.colorbar()
             # ky,z spectrum
             plt.sca(ax.flat[5])
-            plt.imshow(np.log10(np.mean(data, axis=0)).transpose(),
+            plt.imshow(log1010(np.mean(data, axis=0)).transpose(),
                        aspect='auto',
                        extent=[self.kygrid[0], self.kygrid[-1],
                                self.zgrid[0], self.zgrid[-1]],
                        origin='lower',
                        cmap=mpl.cm.gnuplot,
                        interpolation='bilinear')
+            plt.clim(dbmin,0)
             plt.xlabel('ky')
             plt.ylabel('z')
-            title = self._plot_title() + ' (kx,t avg.)'
             plt.title(title)
             plt.colorbar()
         plt.tight_layout()
-
-
-
-    def plot_kx_spectrum(self, tind=None, ifield=None):
-        if tind is not None or ifield is not None:
-            self.get_data(tind=tind, ifield=ifield)
-        fig = plt.figure()
-        fig.suptitle(self.figtitle, fontweight='bold')
-        plt.plot(self.kxgrid, np.mean(self.pdata, (1,2,3)))
-        plt.xlabel('kx')
-        title = self._plot_title() + ' (ky,z,t avg.)'
-        plt.title(title)
-
-    def plot_kxz_spectrum(self, tind=None, ifield=None):
-        if tind is not None or ifield is not None:
-            self.get_data(tind=tind, ifield=ifield)
-        fig = plt.figure()
-        fig.suptitle(self.figtitle, fontweight='bold')
-        plt.imshow(np.mean(self.pdata, (1,3)).transpose(),
-                   aspect='auto',
-                   extent=[self.kxgrid[0], self.kxgrid[-1],
-                           self.zgrid[0], self.zgrid[-1]],
-                   origin='lower',
-                   cmap=mpl.cm.gnuplot,
-                   interpolation='bilinear')
-        plt.xlabel('kx')
-        plt.ylabel('z')
-        title = self._plot_title() + ' (ky,t avg.)'
-        plt.title(title)
-        plt.colorbar()
-
-    def plot_kxky_spectrum(self, tind=None, ifield=None):
-        if self.dims[1]<=1:
-            raise ValueError('need nky>1')
-        if tind is not None or ifield is not None:
-            self.get_data(tind=tind, ifield=ifield)
-        fig = plt.figure()
-        fig.suptitle(self.figtitle, fontweight='bold')
-        plt.imshow(np.mean(self.pdata, (2,3)).transpose(),
-                   aspect='auto',
-                   extent=[self.kxgrid[0], self.kxgrid[-1],
-                           self.kygrid[0], self.kygrid[-1]],
-                   origin='lower',
-                   cmap=mpl.cm.gnuplot,
-                   interpolation='bilinear')
-        plt.xlabel('kx')
-        plt.ylabel('ky')
-        title = self._plot_title() + ' (z,t avg.)'
-        plt.title(title)
-        plt.colorbar()
-
-    def plot_ky_spectrum(self, tind=None, ifield=None):
-        if self.dims[1]<=1:
-            raise ValueError('need nky>1')
-        if tind is not None or ifield is not None:
-            self.get_data(tind=tind, ifield=ifield)
-        fig = plt.figure()
-        fig.suptitle(self.figtitle, fontweight='bold')
-        plt.plot(self.kygrid, np.mean(self.pdata, (0,2,3)))
-        plt.xlabel('ky')
-        title = self._plot_title() + ' (kx,z,t avg.)'
-        plt.title(title)
-
-    def plot_kyz_spectrum(self, tind=None, ifield=None):
-        if self.dims[1]<=1:
-            raise ValueError('need nky>1')
-        if tind is not None or ifield is not None:
-            self.get_data(tind=tind, ifield=ifield)
-        fig = plt.figure()
-        fig.suptitle(self.figtitle, fontweight='bold')
-        plt.imshow(np.mean(self.pdata, (0,3)).transpose(),
-                   aspect='auto',
-                   extent=[self.kygrid[0], self.kygrid[-1],
-                           self.zgrid[0], self.zgrid[-1]],
-                   origin='lower',
-                   cmap=mpl.cm.gnuplot,
-                   interpolation='bilinear')
-        plt.xlabel('ky')
-        plt.ylabel('z')
-        title = self._plot_title() + ' (kx,t avg.)'
-        plt.title(title)
-        plt.colorbar()
 
 
 class Moment(_DataABC):

@@ -8,7 +8,7 @@ import numpy as np
 GENEWORK = Path(os.environ['GENEWORK'])
 
 re_nrgline = re.compile(r'^'+''.join([r'\s+([0-9E.+-]+)' for i in range(8)]))
-re_energy = re.compile(r'^'+''.join([r'\s+([0-9E.+-]+)' for i in range(14)]))
+re_energy = re.compile(r'^'+''.join([r'\s+([0-9ENan.+-]+)' for i in range(14)]))
 re_prefix = re.compile(r'^([a-zA-Z_-]+)')
 re_amp = re.compile(r'^&[a-zA-Z]+')
 re_whitespace = re.compile(r'^\s*$')
@@ -105,9 +105,13 @@ def read_energy(file=Path()):
             if i%20 != 0 or i<=14:
                 continue
             rx = re_energy.match(line)
-            linedata = np.array([eval(s) for s in rx.groups()], ndmin=2)
+            linedata = np.empty((1,14))
+            for i,s in enumerate(rx.groups()):
+                if s == 'NaN':
+                    linedata[0,i] = np.NaN
+                else:
+                    linedata[0,i] = eval(s)
             data = np.append(data, linedata, axis=0)
-    print('{} timesteps: {:d}'.format(file.as_posix(), i-14))
     return {'time':data[:,0],
             'etot':data[:,1],
             'ddtetot':data[:,2],
@@ -131,13 +135,19 @@ def read_nrg(file=Path(), species=[]):
     nsp = len(species)
     data = np.empty((0,8,nsp))
     time = np.empty((0,))
+    decimate=1
     with file.open() as f:
         for i,line in enumerate(f):
-            #itime, iline = np.divmod(i, nsp+1, dtype=np.int)
+            if i >= 3000:
+                decimate=20
+                break
+    print(decimate)
+    with file.open() as f:
+        for i,line in enumerate(f):
             itime = i//(nsp+1)
-            iline = i%(nsp+1)
-            if itime%20 != 0:
+            if itime%decimate != 0:
                 continue
+            iline = i%(nsp+1)
             if iline == 0:
                 time = np.append(time, float(line))
                 data = np.append(data, np.empty((1,8,nsp)), axis=0)
@@ -157,5 +167,4 @@ def read_nrg(file=Path(), species=[]):
                               'gamem':data[:,5,i],
                               'qes':data[:,6,i],
                               'qem':data[:,7,i]}
-    print('{} timesteps: {:d}'.format(file.as_posix(), itime*20))
     return output

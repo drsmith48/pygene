@@ -41,10 +41,47 @@ class _GeneABC(object):
         self.energy = None
         self.nrg = None
 
+    def _read_nrg(self, file=None):
+        '''
+        Read data from a single nrg file
+        '''
+        nsp = self.nspecies
+        data = np.empty((0,8,nsp))
+        time = np.empty((0,))
+        self.nrgdecimate=1
+        with file.open() as f:
+            for i,line in enumerate(f):
+                if i >= 3000:
+                    self.nrgdecimate=20
+                    break
+        with file.open() as f:
+            for i,line in enumerate(f):
+                itime = i//(nsp+1)
+                if itime%self.nrgdecimate != 0:
+                    continue
+                iline = i%(nsp+1)
+                if iline == 0:
+                    time = np.append(time, float(line))
+                    data = np.append(data, np.empty((1,8,nsp)), axis=0)
+                elif iline <= nsp:
+                    rx = utils.re_nrgline.match(line)
+                    values = [float(val) for val in rx.groups()]
+                    data[-1,:,iline-1] = np.array(values)
+                else:
+                    raise ValueError(str(iline))
+        self.nrg = {'time':time,
+                    'noutputs':itime+1}
+        for i in range(nsp):
+            self.nrg[self.species[i]] = {'nsq':data[:,0,i],
+                                         'uparsq':data[:,1,i],
+                                         'tparsq':data[:,2,i],
+                                         'tperpsq':data[:,3,i],
+                                         'games':data[:,4,i],
+                                         'gamem':data[:,5,i],
+                                         'qes':data[:,6,i],
+                                         'qem':data[:,7,i]}
+
     def _set_params_file(self):
-        '''
-        Placeholder to define self.paramsfile in subclass
-        '''
         pass
     
     def grid(self):
@@ -339,6 +376,8 @@ class GeneNonlinearRun(_GeneABC):
         if self.isscan or not self.isnonlinear:
             raise ValueError('isscan {}  isnonlinear {}'.
                              format(self.isscan, self.isnonlinear))
+        self._read_nrg()
+        self._read_energy()
 
     def _set_params_file(self):
         self.paramsfile = self.path / 'parameters.dat'
@@ -347,7 +386,7 @@ class GeneNonlinearRun(_GeneABC):
         self.energy = utils.read_energy(self.path / 'energy.dat')
 
     def _read_nrg(self):
-        self.nrg = utils.read_nrg(self.path / 'nrg.dat', species=self.species)
+        super()._read_nrg(file=self.path/'nrg.dat')
 
     def grid(self):
         print('nx, ny, nz: {:d}, {:d}, {:d}'.format(*self.dims))
