@@ -421,7 +421,8 @@ class GeneNonlinearRun(_GeneABC):
             for key,value in nrg.items():
                 value[0]=0
                 value[np.absolute(value)==0] = 1e-12
-                ax[i].plot(time, value, label=key)
+                label = '{} ({:.1e})'.format(key, value[-1])
+                ax[i].plot(time, value, label=label)
             ax[i].set_yscale('symlog', linthreshy=1e-1)
             ax[i].set_title(sp)
             ax[i].legend(loc='upper left')
@@ -435,16 +436,15 @@ class GeneNonlinearRun(_GeneABC):
         edata = self.energy
         time = edata['time']
         plt.figure()
-        ax = plt.axes()
         for key in ['drive','heatsrc','colldiss','hypvdiss','hypzdiss',
                    'nonlinear','curvmisc']:
-            eterm = edata[key]
-#            eterm[0] = 0
-            eterm[np.absolute(eterm)==0] = 1e-12
-            ax.plot(time, eterm, label=key)
-        ax.set_yscale('symlog', linthreshy=1e-1)
-        ax.legend()
-        ax.set_xlabel('time')
+            label = '{} ({:.1e})'.format(key, edata[key][-1])
+            plt.plot(time, edata[key], label=label)
+#        plt.yscale('symlog', linthreshy=1)
+#        plt.ylim(1e-1,None)
+        plt.legend()
+        plt.ylabel('energy term')
+        plt.xlabel('time')
 
 
 
