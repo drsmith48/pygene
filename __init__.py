@@ -1,3 +1,3 @@
 
-from .pygene import GeneLinearScan
-from .pygene import GeneNonlinearRun
+from .pygene import GeneLinearScan as GLS
+from .pygene import GeneNonlinearRun as GNLS

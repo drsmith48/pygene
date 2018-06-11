@@ -23,8 +23,8 @@ class _DataABC(object):
             or not hasattr(self, 'run') \
             or not hasattr(self, 'fieldnames'):
                 raise AttributeError
-        self.path, self.shortpath, self.plotlabel, self.filelabel, \
-            self.figtitle = utils.path_label(path, label)
+        self.path, self.shortpath, self.plotlabel, \
+            self.filelabel = utils.path_label(path, label)
         self.nfields = nfields
         self.ky = ky
         if not self.nfields or not self.path.is_file():
@@ -66,18 +66,22 @@ class _DataABC(object):
         self.dims = np.array([self.params['nx0'],
                               self.params['nky0'],
                               self.params['nz0']])
+        self.dtmax = self.params.get('dt_max', 1e-9)
+        self.nprocs = self.params.get('n_procs_sim', 0)
+        self.wcperstep = self.params.get('step_time', 0.0)
+        self.wcperunittimepercpu = self.wcperstep / self.dtmax / self.nprocs
 
     def _plot_title(self):
-        title = self.fieldname
+        title = self.fieldname+' '+self.plotlabel
         if self.species:
-            title += ' ({})'.format(self.species[0:4])
+            title += ' {}'.format(self.species[0:4])
         if self.ky:
-            title += ' (ky={:.3f})'.format(self.ky)
-        title += ' '+self.plotlabel
+            title += ' ky={:.2f}'.format(self.ky)
+#        title += ' '+self.plotlabel
         if self.tind.size==1:
-            timestr = ' t={:.2f}'.format(self.timeslices[0])
+            timestr = ' t={:.1f}'.format(self.timeslices[0])
         else:
-            timestr = ' t={:.2f}-{:.2f}'.format(self.timeslices[0],
+            timestr = ' t={:.1f}-{:.1f}'.format(self.timeslices[0],
                                                 self.timeslices[-1])
         title += timestr
         return title
@@ -122,10 +126,6 @@ class _DataABC(object):
         self.data = data
         self.pdata = np.power(np.absolute(data), 2)
         self.ndata = data / np.sum(np.sqrt(self.pdata))
-
-    def plot_mode(self, tind=None, ifield=None):
-        if tind is not None or ifield is not None:
-            self.get_data(tind=tind, ifield=ifield)
         self.mode = np.reshape(np.squeeze(self.data[0:-1,:,:,:]),
                                -1, order='C')
         nconnections = self.dims[0]-1
@@ -133,15 +133,22 @@ class _DataABC(object):
         for i in np.arange(nconnections):
             self.paragrid[i*self.dims[2]:(i+1)*self.dims[2]] = \
                 2*(i-nconnections//2) + self.zgrid/np.pi
-        fig = plt.figure(figsize=(4.6,4))
-        fig.suptitle(self.figtitle, fontweight='bold')
+        imid = self.mode.size//2
+        diffsig = self.mode[imid+1:] - self.mode[imid-1:0:-1]
+        sumsig = self.mode[imid+1:] + self.mode[imid-1:0:-1]
+        self.parity = np.mean(np.square(np.abs(sumsig))) / np.mean(np.square(np.abs(diffsig)))
+
+    def plot_mode(self, tind=None, ifield=None):
+        if tind is not None or ifield is not None:
+            self.get_data(tind=tind, ifield=ifield)
+        plt.figure(figsize=(4.6,4))
         plt.plot(self.paragrid, np.absolute(self.mode), label='Abs()')
-        plt.plot(self.paragrid, np.real(self.mode), label='Real()')
-        axtitle = self._plot_title() + ' ballooning structure'
+        plt.plot(self.paragrid, np.real(self.mode), label='Re()')
+        plt.plot(self.paragrid, np.imag(self.mode), label='Im()')
         plt.legend()
-        plt.title(axtitle)
+        plt.title(self._plot_title())
         plt.xlabel('Ballooning angle (rad/pi)')
-        plt.ylabel('Amplitude')
+        plt.ylabel(self.fieldname)
 
     def plot_spectra(self, tind=None, ifield=None):
         if tind is not None or ifield is not None:

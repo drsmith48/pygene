@@ -15,23 +15,16 @@ from .fields import Moment, Field
 class _GeneABC(object):
 
     def __init__(self, path=None, label=None):
-        self.path, \
-            self.shortpath, \
-            self.plotlabel, \
-            self.filelabel, \
-            self.figtitle = utils.path_label(path, label)
+        self.path, self.shortpath, self.plotlabel, \
+            self.filelabel = utils.path_label(path, label)
         self.paramsfile = None
         self._set_params_file()  # implement in subclass
         self.params = utils.read_parameters(self.paramsfile)
         self.dims = np.array([self.params['nx0'],
                               self.params['nky0'],
-                              self.params['nz0']])
-        self.domain = np.array([self.params['lx'], self.params['ly']])
-        self.resolution = np.array([self.domain[0]/self.dims[0],
-                                    self.domain[1]/self.dims[1]])
-        self.kresolution = np.array([2*np.pi/self.domain[0],
-                                     2*np.pi/self.domain[1]])
-        self.kmax = self.kresolution * self.dims[0:2] *np.array([0.5,1])
+                              self.params['nz0'],
+                              self.params['nv0'],
+                              self.params['nw0']])
         self.isscan = self.params['isscan']
         self.isnonlinear = self.params['isnonlinear']
         self.nspecies = self.params['n_spec']
@@ -85,7 +78,7 @@ class _GeneABC(object):
         pass
     
     def grid(self):
-        pass
+        print('nx, ny, nz, nv, nw: {:d}, {:d}, {:d}, {:d}, {:d}'.format(*self.dims))
 
     def get_moment(self, *args, **kwargs):
         self.moment = Moment(path=self.path, label=self.plotlabel,
@@ -105,8 +98,8 @@ class GeneLinearScan(_GeneABC):
         self.scanlog = None
         self.nscans = None
         self.omega = None
-        self._read_scanlog()
         self._read_omega()
+        self._read_scanlog()
         if not self.isscan or self.isnonlinear:
             raise ValueError('isscan {}  isnonlinear {}'.
                              format(self.isscan, self.isnonlinear))
@@ -116,16 +109,18 @@ class GeneLinearScan(_GeneABC):
 
     def _read_scanlog(self):
         scanfile = self.path / 'scan.log'
-        scanlog = []
+        scanlog = {'paramname':'',
+                   'paramvalues':np.empty(0)}
         with scanfile.open() as f:
-            for line in f:
-                if line.startswith('#Run'):
-                    continue
-                rx = utils.re_scanlog.match(line)
-                rdict = rx.groupdict()
-                scanlog.append(float(rdict['ky']))
+            for i,line in enumerate(f):
+                if i==0:
+                    rx = utils.re_scanlogheader.match(line)
+                    scanlog['paramname'] = rx.groupdict()['param']
+                else:
+                    rx = utils.re_scanlog.match(line)
+                    value = float(rx.groupdict()['value'])
+                    scanlog['paramvalues'] = np.append(scanlog['paramvalues'], value)
         self.scanlog = scanlog
-        self.nscans = len(scanlog)
 
     def _read_omega(self):
         output = {'ky':np.empty(0),
@@ -136,14 +131,14 @@ class GeneLinearScan(_GeneABC):
                 s = f.readline()
                 rx = utils.re_omegafile.match(s)
                 if not rx or len(rx.groups()) != 3:
-                    print('bad data file: ', file)
-                    return False
-                    #raise ValueError('Failed RegEx: {}'.format(s))
+                    print('bad omega file: {}'.format(file.as_posix()))
+                    continue
                 for key,value in rx.groupdict().items():
                     v = eval(value)
                     if v==0.0 or (key=='omi' and v<0):
                         v = np.NaN
                     output[key] = np.append(output[key], v)
+        self.nscans = len(output['ky'])
         self.omega = output
 
     def _read_nrg_scan(self):
@@ -152,32 +147,148 @@ class GeneLinearScan(_GeneABC):
             run = int(file.name[-4:])
             self.nrg = utils.read_nrg(self.path / 'nrg_{:04d}'.format(run),
                                 species=self.species)
-            self.nrg.update({'ky':self.scanlog[i]})
+            self.nrg.update({'ky':self.omega['ky'][i]})
             nrgscan.append(self.nrg)
         return nrgscan
 
     def grid(self):
-        print('nx, ny, nz: {:d}, {:d}, {:d}'.format(*self.dims))
-        print('lx, ly domain: {:.2f}, {:.2f}'.format(*self.domain))
-        print('xres, yres: {:.3f}, {:.2f}'.format(*self.resolution))
-        print('kxmax, kymax: {:.3f}, {:.3f}'.format(*self.kmax))
-        print('kxres, kyres: {:.3f}, {:.3f}'.format(*self.kresolution))
-        print('kymin*shat*lx: {:.3f}'.format(
-                self.kresolution[1]*self.params['shat']*self.domain[0]))
+        super().grid()
+        
+    def overview(self):
+        self.grid()
+        self.plot_omega()
+        for i in np.arange(1,self.nscans+1,3):
+            self.get_field(run=i)
+            self.field.plot_mode()
+            
+    def overview2(self):
+        parity = np.empty(0)
+        wc = np.empty(0)
+        dtmax = np.empty(0)
+        wcperstep = np.empty(0)
+        for i in range(self.nscans):
+            self.get_field(run=i+1)
+            parity = np.append(parity, self.field.parity)
+            wc = np.append(wc, self.field.wcperunittimepercpu)
+            dtmax = np.append(dtmax, self.field.dtmax)
+            wcperstep = np.append(wcperstep, 
+                                  self.field.wcperstep/self.field.nprocs)
+        f,ax = plt.subplots(nrows=2,ncols=2)
+        ax.flat[0].semilogy(parity, '-x', label=self.plotlabel)
+        ax.flat[0].set_ylabel('parity')
+        ax.flat[1].semilogy(wc, '-x', label=self.plotlabel)
+        ax.flat[1].set_ylabel(r'wc/tau/cpu')
+        ax.flat[2].semilogy(dtmax, '-x', label=self.plotlabel)
+        ax.flat[2].set_ylabel(r'tau/step')
+        ax.flat[3].plot(wcperstep, '-x', label=self.plotlabel)
+        ax.flat[3].set_ylabel(r'wc/step/cpu')
+        for a in ax.flat:
+            a.set_xlabel('run number')
+            a.legend()
         
     def get_moment(self, run=1, species='ions', *args, **kwargs):
-        super().get_moment(run=run, species=species, ky=self.scanlog[run-1], 
+        super().get_moment(run=run, species=species, ky=self.omega['ky'][run-1], 
              *args, **kwargs)
 
     def get_field(self, run=1, *args, **kwargs):
-        super().get_field(run=run, ky=self.scanlog[run-1],
+        super().get_field(run=run, ky=self.omega['ky'][run-1],
              *args, **kwargs)
+        
+    def plot_omega_runindex(self):
+        fig, axes = plt.subplots(nrows=2, figsize=(6,4.25))
+        data = self.omega
+        axes[0].plot(data['omi'], '-x', label=self.plotlabel)
+        axes[1].plot(data['omr'], '-x', label=self.plotlabel)
+        axes[0].set_ylabel('gamma/(c_s/a)')
+        axes[1].set_ylabel('omega/(c_s/a)')
+        for ax in axes:
+            ax.set_xlabel('run index')
+            ax.legend()
+        fig.tight_layout()
 
-    def print_scanlog(self):
-        print('Scanlog for {}:'.format(self.shortpath))
-        for i,ky in enumerate(self.scanlog):
-            print('  Run {:02d}: ky = {:.3f}'.format(i+1, ky))
+    def plot_omega(self, oplot=[], save=False, format='pdf'):
+        fig, axes = plt.subplots(nrows=2, figsize=(6,4.25))
+        data = self.omega
+        filename = 'omega_'+self.filelabel
+        axes[0].plot(data['ky'], data['omi'], '-x', label=self.plotlabel)
+        axes[1].plot(data['ky'], data['omr'], '-x', label=self.plotlabel)
+        for i,x,y in zip(range(self.nscans), data['ky'], data['omi']):
+            axes[0].annotate(str(i+1), (x,y),
+                xytext=(2,2), textcoords='offset points')
+        for i,x,y in zip(range(self.nscans), data['ky'], data['omr']):
+            axes[1].annotate(str(i+1), (x,y),
+                xytext=(2,2), textcoords='offset points')
+        if not isinstance(oplot, (list, tuple)):
+            oplot = [oplot]
+        for sim in oplot:
+            data = sim.omega
+            filename += '_'+sim.filelabel
+            axes[0].plot(data['ky'], data['omi'], '-x', label=sim.plotlabel)
+            axes[1].plot(data['ky'], data['omr'], '-x', label=sim.plotlabel)
+            for i,x,y in zip(range(sim.nscans), data['ky'], data['omi']):
+                axes[0].annotate(str(i+1), (x,y),
+                    xytext=(2,2), textcoords='offset points')
+            for i,x,y in zip(range(sim.nscans), data['ky'], data['omr']):
+                axes[1].annotate(str(i+1), (x,y),
+                    xytext=(2,2), textcoords='offset points')
+        axes[0].set_ylabel('gamma/(c_s/a)')
+        axes[1].set_ylabel('omega/(c_s/a)')
+        for ax in axes:
+            ax.set_xlabel('k_y rho_i')
+            ax.set_xscale('log')
+            ax.set_xlim(0.1,2)
+            ax.legend()
+        fig.tight_layout()
+        if save:
+            savename = filename+'.'+format
+            fig.savefig(savename)
 
+    def plot_nsq(self, species='ions'):
+        nrgdata = self._read_nrg_scan()
+        nruns = len(nrgdata)
+        nlines = 4
+        nax = nruns//nlines + int(bool(nruns%nlines))
+        ncol = nax//2 + nax%2
+        fig, axes = plt.subplots(nrows=2, ncols=ncol, figsize=(12,5))
+        i = 0
+        for ax in axes.flat:
+            for j in range(nlines):
+                if i >= nruns:
+                    break
+                nrg = nrgdata[i]
+                time = nrg['time']
+                data = nrg[species]
+                ky = nrg['ky']
+                ax.plot(time, data['nsq'], label='ky={}'.format(ky))
+                i += 1
+            ax.legend()
+            ax.set_xlabel('time (c_s/a)')
+            ax.set_ylabel('|n|^2')
+            ax.set_yscale('log')
+            ax.set_title(self.shortpath)
+        fig.tight_layout()
+
+    def plot_energy(self, run):
+        fig, axes = plt.subplots()
+        datafile = self.path / 'energy_{:04d}'.format(run)
+        data = utils.read_energy(self.path / 'energy_{:04}'.format(run))
+        axes.plot(data['time'], -data['colldiss']/data['grossdrive'], label='coll')
+        axes.plot(data['time'], -data['hypzdiss']/data['grossdrive'], label='hypz')
+        axes.plot(data['time'], -data['hypvdiss']/data['grossdrive'], label='hypv')
+        axes.plot(data['time'], np.abs(data['curvmisc'])/data['grossdrive'], label='misc')
+        axes.legend()
+        axes.set_xlabel('Time (c_s/a)')
+        axes.set_ylabel('Diss. / Drive')
+        axes.set_title('/'.join(datafile.parts[-3:]))
+        axes.set_yscale('log')
+        axes.set_ylim([1e-4,1e0])
+        fig.tight_layout()
+
+#    def print_scanlog(self):
+#        print('Scanlog for {}:'.format(self.shortpath))
+#        for i,ky in enumerate(self.scanlog):
+#            print('  Run {:02d}: ky = {:.3f}'.format(i+1, ky))
+#
 #    def plot_kxflux(self, *args, **kwargs):
 #        bref = float(self.params.get('Bref', 1.0))
 #        ky = self.params['kymin']
@@ -289,84 +400,6 @@ class GeneLinearScan(_GeneABC):
 #        plt.title(title)
 #        plt.colorbar()
 
-    def plot_omega(self, oplot=[], save=False, format='pdf'):
-        fig, axes = plt.subplots(nrows=2, figsize=(7.5,4.25))
-        data = self.omega
-        filename = 'omega_'+self.filelabel
-        axes[0].plot(data['ky'], data['omi'], '-x', label=self.plotlabel)
-        for i,x,y in zip(range(self.nscans), data['ky'], data['omi']):
-            axes[0].annotate(str(i+1), (x,y),
-                xytext=(2,2), textcoords='offset points')
-        axes[1].plot(data['ky'], data['omr'], '-x', label=self.plotlabel)
-        for i,x,y in zip(range(self.nscans), data['ky'], data['omr']):
-            axes[1].annotate(str(i+1), (x,y),
-                xytext=(2,2), textcoords='offset points')
-        if not isinstance(oplot, (list, tuple)):
-            oplot = [oplot]
-        for sim in oplot:
-            data = sim.omega
-            filename += '_'+sim.filelabel
-            axes[0].plot(data['ky'], data['omi'], '-x', label=sim.plotlabel)
-            for i,x,y in zip(range(sim.nscans), data['ky'], data['omi']):
-                axes[0].annotate(str(i+1), (x,y),
-                    xytext=(2,2), textcoords='offset points')
-            axes[1].plot(data['ky'], data['omr'], '-x', label=sim.plotlabel)
-            for i,x,y in zip(range(sim.nscans), data['ky'], data['omr']):
-                axes[1].annotate(str(i+1), (x,y),
-                    xytext=(2,2), textcoords='offset points')
-        axes[0].set_ylabel('gamma/(c_s/a)')
-        axes[1].set_ylabel('omega/(c_s/a)')
-        for ax in axes:
-            ax.set_xlabel('k_y rho_i')
-            ax.set_xscale('log')
-            ax.set_xlim(0.1,2)
-            ax.set_title(self.figtitle)
-            ax.legend()
-        fig.tight_layout()
-        if save:
-            savename = filename+'.'+format
-            fig.savefig(savename)
-
-    def plot_nsq(self, species='ions'):
-        nrgdata = self._read_nrg_scan()
-        nruns = len(nrgdata)
-        nlines = 4
-        nax = nruns//nlines + int(bool(nruns%nlines))
-        ncol = nax//2 + nax%2
-        fig, axes = plt.subplots(nrows=2, ncols=ncol, figsize=(12,5))
-        i = 0
-        for ax in axes.flat:
-            for j in range(nlines):
-                if i >= nruns:
-                    break
-                nrg = nrgdata[i]
-                time = nrg['time']
-                data = nrg[species]
-                ky = nrg['ky']
-                ax.plot(time, data['nsq'], label='ky={}'.format(ky))
-                i += 1
-            ax.legend()
-            ax.set_xlabel('time (c_s/a)')
-            ax.set_ylabel('|n|^2')
-            ax.set_yscale('log')
-            ax.set_title(self.shortpath)
-        fig.tight_layout()
-
-    def plot_energy(self, run):
-        fig, axes = plt.subplots()
-        datafile = self.path / 'energy_{:04d}'.format(run)
-        data = utils.read_energy(self.path / 'energy_{:04}'.format(run))
-        axes.plot(data['time'], -data['colldiss']/data['grossdrive'], label='coll')
-        axes.plot(data['time'], -data['hypzdiss']/data['grossdrive'], label='hypz')
-        axes.plot(data['time'], -data['hypvdiss']/data['grossdrive'], label='hypv')
-        axes.plot(data['time'], np.abs(data['curvmisc'])/data['grossdrive'], label='misc')
-        axes.legend()
-        axes.set_xlabel('Time (c_s/a)')
-        axes.set_ylabel('Diss. / Drive')
-        axes.set_title('/'.join(datafile.parts[-3:]))
-        axes.set_yscale('log')
-        axes.set_ylim([1e-4,1e0])
-        fig.tight_layout()
 
 
 class GeneNonlinearRun(_GeneABC):
@@ -376,6 +409,7 @@ class GeneNonlinearRun(_GeneABC):
         if self.isscan or not self.isnonlinear:
             raise ValueError('isscan {}  isnonlinear {}'.
                              format(self.isscan, self.isnonlinear))
+        self._calc_grid()
         self._read_nrg()
         self._read_energy()
 
@@ -387,9 +421,18 @@ class GeneNonlinearRun(_GeneABC):
 
     def _read_nrg(self):
         super()._read_nrg(file=self.path/'nrg.dat')
+        
+    def _calc_grid(self):
+        self.domain = np.array([self.params['lx'], self.params['ly']])
+        self.resolution = np.array([self.domain[0]/self.dims[0],
+                                    self.domain[1]/self.dims[1]])
+        self.kresolution = np.array([2*np.pi/self.domain[0],
+                                     2*np.pi/self.domain[1]])
+        self.kmax = self.kresolution * self.dims[0:2] *np.array([0.5,1])
+
 
     def grid(self):
-        print('nx, ny, nz: {:d}, {:d}, {:d}'.format(*self.dims))
+        super().grid()
         print('lx, ly domain: {:.2f}, {:.2f}'.format(*self.domain))
         print('xres, yres: {:.3f}, {:.2f}'.format(*self.resolution))
         print('kxmax, kymax: {:.3f}, {:.3f}'.format(*self.kmax))
@@ -410,7 +453,7 @@ class GeneNonlinearRun(_GeneABC):
     def get_field(self, tind=-1, ifield=0, nosingle=False):
         super().get_field(tind=tind, ifield=ifield, nosingle=nosingle)
 
-    def plot_nrg(self, species='ions'):
+    def plot_nrg(self):
         if not self.nrg:
             self._read_nrg()
         time = self.nrg['time']
@@ -450,11 +493,11 @@ class GeneNonlinearRun(_GeneABC):
 
 if __name__=='__main__':
     plt.close('all')
-#    minb = GeneLinearScan()
+    minb = GeneLinearScan()
 #    minb.plot_omega()
 #    minb.plot_nsq()
 #    minb.plot_energy(run=4)
-    nl = GeneNonlinearRun()
-    nl.get_field()
-    nl.field.plot_kxky_spectrum()
-    nl.plot_nrg()
+#    nl = GeneNonlinearRun()
+#    nl.get_field()
+#    nl.field.plot_kxky_spectrum()
+#    nl.plot_nrg()
