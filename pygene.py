@@ -93,13 +93,14 @@ class _GeneABC(object):
 
 class GeneLinearScan(_GeneABC):
 
-    def __init__(self, path='ref03/scanfiles0015', label=''):
+    def __init__(self, path='ref03/scanfiles0015', label='',
+                 scanparam=''):
         super().__init__(path=path, label=label)
         self.scanlog = None
         self.nscans = None
         self.omega = None
-        self._read_omega()
         self._read_scanlog()
+        self._read_omega()
         if not self.isscan or self.isnonlinear:
             raise ValueError('isscan {}  isnonlinear {}'.
                              format(self.isscan, self.isnonlinear))
@@ -123,10 +124,12 @@ class GeneLinearScan(_GeneABC):
         self.scanlog = scanlog
 
     def _read_omega(self):
-        output = {'ky':np.empty(0),
+        scanparam = self.scanlog['paramname']
+        scanvalues = self.scanlog['paramvalues']
+        output = {scanparam:np.empty(0),
                   'omi':np.empty(0),
                   'omr':np.empty(0)}
-        for file in sorted(self.path.glob('omega*')):
+        for i,file in enumerate(sorted(self.path.glob('omega*'))):
             with file.open() as f:
                 s = f.readline()
                 rx = utils.re_omegafile.match(s)
@@ -134,34 +137,35 @@ class GeneLinearScan(_GeneABC):
                     print('bad omega file: {}'.format(file.as_posix()))
                     continue
                 for key,value in rx.groupdict().items():
+                    if key=='ky':
+                        continue
                     v = eval(value)
                     if v==0.0 or (key=='omi' and v<0):
                         v = np.NaN
                     output[key] = np.append(output[key], v)
-        self.nscans = len(output['ky'])
+                output[scanparam] = np.append(output[scanparam], 
+                                              scanvalues[i])
+        self.nscans = len(output[scanparam])
         self.omega = output
 
     def _read_nrg_scan(self):
         nrgscan = []
+        scanparam = self.scanlog['paramname']
+        scanvalues = self.scanlog['paramvalues']
         for i,file in enumerate(sorted(self.path.glob('nrg*'))):
             run = int(file.name[-4:])
             self.nrg = utils.read_nrg(self.path / 'nrg_{:04d}'.format(run),
                                 species=self.species)
-            self.nrg.update({'ky':self.omega['ky'][i]})
+            self.nrg.update({scanparam:scanvalues[i]})
             nrgscan.append(self.nrg)
         return nrgscan
 
-    def grid(self):
-        super().grid()
-        
     def overview(self):
         self.grid()
         self.plot_omega()
         for i in np.arange(1,self.nscans+1,3):
             self.get_field(run=i)
             self.field.plot_mode()
-            
-    def overview2(self):
         parity = np.empty(0)
         wc = np.empty(0)
         dtmax = np.empty(0)
@@ -187,35 +191,22 @@ class GeneLinearScan(_GeneABC):
             a.legend()
         
     def get_moment(self, run=1, species='ions', *args, **kwargs):
-        super().get_moment(run=run, species=species, ky=self.omega['ky'][run-1], 
-             *args, **kwargs)
+        super().get_moment(run=run, species=species, *args, **kwargs)
 
     def get_field(self, run=1, *args, **kwargs):
-        super().get_field(run=run, ky=self.omega['ky'][run-1],
-             *args, **kwargs)
+        super().get_field(run=run, *args, **kwargs)
         
-    def plot_omega_runindex(self):
+    def plot_omega(self, xscale='linear',  oplot=[], save=False):
         fig, axes = plt.subplots(nrows=2, figsize=(6,4.25))
         data = self.omega
-        axes[0].plot(data['omi'], '-x', label=self.plotlabel)
-        axes[1].plot(data['omr'], '-x', label=self.plotlabel)
-        axes[0].set_ylabel('gamma/(c_s/a)')
-        axes[1].set_ylabel('omega/(c_s/a)')
-        for ax in axes:
-            ax.set_xlabel('run index')
-            ax.legend()
-        fig.tight_layout()
-
-    def plot_omega(self, oplot=[], save=False, format='pdf'):
-        fig, axes = plt.subplots(nrows=2, figsize=(6,4.25))
-        data = self.omega
+        scanparam = self.scanlog['paramname']
         filename = 'omega_'+self.filelabel
-        axes[0].plot(data['ky'], data['omi'], '-x', label=self.plotlabel)
-        axes[1].plot(data['ky'], data['omr'], '-x', label=self.plotlabel)
-        for i,x,y in zip(range(self.nscans), data['ky'], data['omi']):
+        axes[0].plot(data[scanparam], data['omi'], '-x', label=self.plotlabel)
+        axes[1].plot(data[scanparam], data['omr'], '-x', label=self.plotlabel)
+        for i,x,y in zip(range(self.nscans), data[scanparam], data['omi']):
             axes[0].annotate(str(i+1), (x,y),
                 xytext=(2,2), textcoords='offset points')
-        for i,x,y in zip(range(self.nscans), data['ky'], data['omr']):
+        for i,x,y in zip(range(self.nscans), data[scanparam], data['omr']):
             axes[1].annotate(str(i+1), (x,y),
                 xytext=(2,2), textcoords='offset points')
         if not isinstance(oplot, (list, tuple)):
@@ -223,28 +214,29 @@ class GeneLinearScan(_GeneABC):
         for sim in oplot:
             data = sim.omega
             filename += '_'+sim.filelabel
-            axes[0].plot(data['ky'], data['omi'], '-x', label=sim.plotlabel)
-            axes[1].plot(data['ky'], data['omr'], '-x', label=sim.plotlabel)
-            for i,x,y in zip(range(sim.nscans), data['ky'], data['omi']):
+            axes[0].plot(data[scanparam], data['omi'], '-x', label=sim.plotlabel)
+            axes[1].plot(data[scanparam], data['omr'], '-x', label=sim.plotlabel)
+            for i,x,y in zip(range(sim.nscans), data[scanparam], data['omi']):
                 axes[0].annotate(str(i+1), (x,y),
                     xytext=(2,2), textcoords='offset points')
-            for i,x,y in zip(range(sim.nscans), data['ky'], data['omr']):
+            for i,x,y in zip(range(sim.nscans), data[scanparam], data['omr']):
                 axes[1].annotate(str(i+1), (x,y),
                     xytext=(2,2), textcoords='offset points')
+        axes[0].set_title(self.shortpath)
         axes[0].set_ylabel('gamma/(c_s/a)')
+        axes[0].set_yscale('log')
         axes[1].set_ylabel('omega/(c_s/a)')
         for ax in axes:
-            ax.set_xlabel('k_y rho_i')
-            ax.set_xscale('log')
-            ax.set_xlim(0.1,2)
+            ax.set_xlabel(scanparam)
+            ax.set_xscale(xscale)
             ax.legend()
         fig.tight_layout()
         if save:
-            savename = filename+'.'+format
-            fig.savefig(savename)
+            fig.savefig(filename+'.pdf')
 
     def plot_nsq(self, species='ions'):
         nrgdata = self._read_nrg_scan()
+        scanparam = self.scanlog['paramname']
         nruns = len(nrgdata)
         nlines = 4
         nax = nruns//nlines + int(bool(nruns%nlines))
@@ -258,8 +250,8 @@ class GeneLinearScan(_GeneABC):
                 nrg = nrgdata[i]
                 time = nrg['time']
                 data = nrg[species]
-                ky = nrg['ky']
-                ax.plot(time, data['nsq'], label='ky={}'.format(ky))
+                scanvalue = nrg[scanparam]
+                ax.plot(time, data['nsq'], label='{}={}'.format(scanparam,scanvalue))
                 i += 1
             ax.legend()
             ax.set_xlabel('time (c_s/a)')
@@ -284,11 +276,6 @@ class GeneLinearScan(_GeneABC):
         axes.set_ylim([1e-4,1e0])
         fig.tight_layout()
 
-#    def print_scanlog(self):
-#        print('Scanlog for {}:'.format(self.shortpath))
-#        for i,ky in enumerate(self.scanlog):
-#            print('  Run {:02d}: ky = {:.3f}'.format(i+1, ky))
-#
 #    def plot_kxflux(self, *args, **kwargs):
 #        bref = float(self.params.get('Bref', 1.0))
 #        ky = self.params['kymin']
