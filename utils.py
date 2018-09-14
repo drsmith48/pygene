@@ -49,19 +49,6 @@ def get_binary_config(nfields=None, elements=None, isdouble=None, isbig=None):
     return (intsize, entrysize, leapfld, nprt, npct, te, tesize)
 
 
-def path_label(path=None, label=''):
-    path = validate_path(path)
-    shortpath = '/'.join(path.parts[-2:])
-    if label:
-        plotlabel = label
-        rx = re_prefix.match(label)
-        filelabel = rx.group(1)
-    else:
-        plotlabel = ''
-        filelabel = path.parts[-1]
-    return path, shortpath, plotlabel, filelabel
-
-
 def read_parameters(file=None):
     file = validate_path(file)
     params = {'isscan':False,
@@ -140,7 +127,6 @@ def read_nrg(file=Path(), species=[]):
             if i >= 3000:
                 decimate=20
                 break
-    print(decimate)
     with file.open() as f:
         for i,line in enumerate(f):
             itime = i//(nsp+1)
