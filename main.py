@@ -417,19 +417,22 @@ class GeneNonlinearRun(_GeneABC):
         if not self.nrg:
             self._read_nrg()
         time = self.nrg['time']
-        fig, ax = plt.subplots(ncols=self.nspecies, figsize=(9,3))
+        t1 = np.searchsorted(time, 1.0)
+        fig, ax = plt.subplots(ncols=self.nspecies, nrows=2, figsize=(9,5))
         for i,sp in enumerate(self.species):
-            plt.sca(ax.flat[i])
             nrg = self.nrg[sp]
             for key,value in nrg.items():
-                value[0]=0
-                value[np.absolute(value)==0] = 1e-12
+                if key.lower().startswith('q') or key.lower().startswith('gam'):
+                    plt.sca(ax.flat[i+2])
+                else:
+                    plt.sca(ax.flat[i])
                 label = '{} ({:.1e})'.format(key, value[-1])
-                plt.plot(time, value, label=label)
-            plt.yscale('symlog', linthreshy=1e-1)
-            plt.title(sp)
-            plt.legend(loc='upper left')
-            plt.xlabel('time')
+                plt.plot(time[t1:], value[t1:], label=label)
+            for iax in [i,i+2]:
+                plt.sca(ax.flat[iax])
+                plt.title(sp)
+                plt.legend(loc='upper left')
+                plt.xlabel('time')
         plt.tight_layout()
 
     def plot_energy(self):
