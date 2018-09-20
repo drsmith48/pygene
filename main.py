@@ -11,33 +11,36 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 from . import utils
 from .fields import Moment, Field
+from .vsp import Vspace
 
+dbmin = -30
 
 class _GeneABC(object):
 
     def __init__(self, path=None, label=None):
-        self._path_input = path
-        self._label_input = label
+        self._path = path
+        self._label = label
         self._set_path_label()
             
         # set parameter file and read parameters
         self._set_params_file()  # implement in subclass
         self.params = utils.read_parameters(self.paramsfile)
-        self.nspecies = self.params['n_spec']
         self.species = self.params['species']
+        self.nspecies = self.params['n_spec']
         self.nfields = self.params['n_fields']
         self.nmoments = self.params['n_moms']
         self.moment = None
         self.field = None
+        self.vsp = None
         self.energy = None
         self.nrg = None
 
     def _set_path_label(self):
-        self.path = utils.validate_path(self._path_input)
+        self.path = utils.validate_path(self._path)
         self.shortpath = '/'.join(self.path.parts[-2:])
-        if self._label_input:
-            self.plotlabel = self._label_input
-            rx = utils.re_prefix.match(self._label_input)
+        if self._label:
+            self.plotlabel = self._label
+            rx = utils.re_prefix.match(self._label)
             self.filelabel = rx.group(1)
         else:
             self.plotlabel = ''
@@ -84,11 +87,15 @@ class _GeneABC(object):
                                          'qes':data[:,6,i],
                                          'qem':data[:,7,i]}
 
-    def set_moment(self, **kwargs):
-        self.moment = Moment(parent=self, **kwargs)
+    def get_moment(self, tind=-1, ivar=0, run=None, species='ions'):
+        self.moment = Moment(tind=tind, ivar=ivar, run=run, 
+                             species=species, parent=self)
 
-    def set_field(self, **kwargs):
-        self.field = Field(parent=self, **kwargs)
+    def get_field(self, tind=-1, ivar=0, run=None):
+        self.field = Field(tind=tind, ivar=ivar, run=run, parent=self)
+        
+    def get_vsp(self, tind=-1, run=None):
+        self.vsp = Vspace(tind=tind, run=run, parent=self)
 
 
 class GeneLinearScan(_GeneABC):
@@ -144,7 +151,7 @@ class GeneLinearScan(_GeneABC):
                     output[key] = np.append(output[key], v)
                 output[scanparam] = np.append(output[scanparam], 
                                               scanvalues[i])
-            self.set_field(run=i+1)
+            self.get_field(run=i+1)
             output['phiparity'] = np.append(output['phiparity'], 
                                          self.field.parity)
             output['tailsize'] = np.append(output['tailsize'], 
@@ -196,11 +203,11 @@ class GeneLinearScan(_GeneABC):
             a.set_xlabel('run number')
             a.legend()
         
-    def set_moment(self, run=1, **kwargs):
-        super().set_moment(run=run, **kwargs)
-
-    def set_field(self, run=1, **kwargs):
-        super().set_field(run=run, **kwargs)
+#    def get_moment(self, run=1, **kwargs):
+#        super().get_moment(run=run, **kwargs)
+#
+#    def get_field(self, run=1, **kwargs):
+#        super().get_field(run=run, **kwargs)
         
     def plot_omega(self, xscale='linear', gammascale='linear', 
                    filename='', oplot=[], save=False, index=False):
@@ -382,6 +389,58 @@ class GeneNonlinearRun(_GeneABC):
 #                nrgtime[0], nrgtime[-1]))
 #        print('nrg timesteps: {:d}'.format(nrgtime.size*20))
         
+    def plot_kxky(self, species='ions'):
+        fig, ax = plt.subplots(nrows=2, ncols=3, figsize=[9,5])
+        tind = [-3,-2,-1]
+        for ifield in [0,1]:
+            self.get_field(ivar=ifield, tind=tind)
+            data = np.mean(np.abs(self.field.data),axis=3)
+            plt.sca(ax.flat[0])
+            plt.plot(self.field.kygrid, 
+                     utils.log1010(np.mean(data, axis=(0,2))),
+                     label=self.field.varname)
+            plt.xlabel('ky')
+            plt.sca(ax.flat[3])
+            plt.plot(self.field.kxgrid, 
+                     utils.log1010(np.mean(data, axis=(1,2))),
+                     label=self.field.varname)
+            plt.xlabel('kx')
+        for imom in [0,1,2]:
+            self.get_moment(ivar=imom, tind=tind, species=species)
+            data = np.mean(np.abs(self.moment.data),axis=3)
+            plt.sca(ax.flat[1])
+            plt.plot(self.moment.kygrid, 
+                     utils.log1010(np.mean(data, axis=(0,2))),
+                     label='{} {}'.format(self.moment.species[0:4],
+                            self.moment.varname))
+            plt.xlabel('ky')
+            plt.sca(ax.flat[4])
+            plt.plot(self.moment.kxgrid, 
+                     utils.log1010(np.mean(data, axis=(1,2))),
+                     label='{} {}'.format(self.moment.species[0:4],
+                            self.moment.varname))
+            plt.xlabel('kx')
+        for imom in [5,3,4]:
+            self.get_moment(ivar=imom, tind=tind, species=species)
+            data = np.mean(np.abs(self.moment.data),axis=3)
+            plt.sca(ax.flat[2])
+            plt.plot(self.moment.kygrid, 
+                     utils.log1010(np.mean(data, axis=(0,2))),
+                     label='{} {}'.format(self.moment.species[0:4],
+                            self.moment.varname))
+            plt.xlabel('ky')
+            plt.sca(ax.flat[5])
+            plt.plot(self.moment.kxgrid, 
+                     utils.log1010(np.mean(data, axis=(1,2))),
+                     label='{} {}'.format(self.moment.species[0:4],
+                            self.moment.varname))
+            plt.xlabel('kx')
+        for axx in ax.flat:
+            axx.set_ylim(dbmin,None)
+            axx.set_title(self.shortpath)
+            axx.legend()
+        plt.tight_layout()
+        
     def plot_xyimages(self, species='ions'):
         ncols = np.int(np.ceil((self.nfields+self.nmoments)/2.0))
         fig, ax = plt.subplots(nrows=2, 
@@ -391,11 +450,11 @@ class GeneNonlinearRun(_GeneABC):
         for i in range(self.nfields+self.nmoments):
             plt.sca(ax.flat[iax])
             if i<self.nfields:
-                self.set_field(ivar=i)
+                self.get_field(ivar=i)
                 var = self.field
                 title = var.varname + ' (z=0)'
             else:
-                self.set_moment(ivar=i-self.nfields,
+                self.get_moment(ivar=i-self.nfields,
                                 species=species)
                 var = self.moment
                 title = var.species[0:3] + ' ' + var.varname + ' (z=0)'

@@ -1,5 +1,6 @@
 
 import os
+import struct
 import numpy as np
 from scipy import signal
 import matplotlib.pyplot as plt
@@ -9,10 +10,6 @@ from . import utils
 field_names = ['phi', 'A_para', 'B_para']
 mom_names = ['dens', 'T_para', 'T_perp', 'Q_para', 'Q_perp', 'u_para']
 dbmin = -30
-eps = np.finfo(np.float).eps
-
-def log1010(data):
-    return 10*np.log10(data + eps)
 
 class _DataABC(object):
 
@@ -31,12 +28,38 @@ class _DataABC(object):
         self.filelabel = self.parent.filelabel
         self._read_paramsfile()
         self._make_grids()
-        self.binary = utils.get_binary_config(
-                self.nvars,
-                self.dims.prod(),
-                self.params['PRECISION']=='DOUBLE',
-                self.params['ENDIANNESS']=='BIG')
+        self._set_binary_configuration(
+            nfields=self.nvars,
+            elements=self.dims.prod(),
+            isdouble=self.params['PRECISION']=='DOUBLE',
+            isbig=self.params['ENDIANNESS']=='BIG')
         self.get_data()
+
+    def _set_binary_configuration(self, nfields=None, elements=None, 
+                                  isdouble=None, isbig=None):
+        realsize = 4 + 4 * isdouble
+        complexsize = 2*realsize
+        intsize = 4
+        entrysize = elements * complexsize
+        leapfld = nfields * (entrysize+2*intsize)
+#        print('*** Fields ***')
+#        print('complex size', complexsize)
+#        print('elements', elements)
+#        print('entry size', entrysize)
+#        print('nfields', nfields)
+#        print('leapfld', leapfld)
+        if isbig:
+            nprt=(np.dtype(np.float64)).newbyteorder()
+            npct=(np.dtype(np.complex128)).newbyteorder()
+            fmt = '>idi'
+        else:
+            nprt=np.dtype(np.float64)
+            npct=np.dtype(np.complex128)
+            fmt = '=idi'
+        te = struct.Struct(fmt)
+        tesize = te.size
+        self.binary_configuration = (intsize, entrysize, leapfld, 
+                                     nprt, npct, te, tesize)
 
     def _read_paramsfile(self):
         if self.run:
@@ -63,7 +86,7 @@ class _DataABC(object):
         self.zgrid = np.linspace(-np.pi, np.pi-delz, self.dims[2])
 
     def _read_time_array(self):
-        intsize, entrysize, leapfld, nprt, npct, te, tesize = self.binary
+        intsize, entrysize, leapfld, nprt, npct, te, tesize = self.binary_configuration
         self.time = np.empty(0)
         with self.path.open('rb') as f:
             filesize = os.path.getsize(self.path.as_posix())
@@ -72,7 +95,7 @@ class _DataABC(object):
                 self.time = np.append(self.time, value)
                 f.seek(leapfld,1)
 
-    def _plot_title(self):
+    def _set_plot_title(self):
         title = self.varname+' '+self.plotlabel
         if self.species:
             title += ' {}'.format(self.species[0:4])
@@ -84,7 +107,7 @@ class _DataABC(object):
             timestr = ' t={:.0f}-{:.0f}'.format(self.timeslices[0],
                                                 self.timeslices[-1])
         title += timestr
-        return title
+        self.plot_title = title
 
     def get_data(self, tind=None, ivar=None):
         if tind is not None:
@@ -99,7 +122,8 @@ class _DataABC(object):
         self._read_time_array()
         self.tind[self.tind<0] += self.time.size
         self.timeslices = self.time[self.tind]
-        intsize, entrysize, leapfld, nprt, npct, te, tesize = self.binary
+        self._set_plot_title()
+        intsize, entrysize, leapfld, nprt, npct, te, tesize = self.binary_configuration
         data = np.empty((self.dims[0],
                          self.dims[1],
                          self.dims[2],
@@ -113,9 +137,8 @@ class _DataABC(object):
                 flatdata = np.fromfile(f, count=self.dims.prod(), dtype=npct)
                 data[:,:,:,i] = flatdata.reshape(tuple(self.dims[::-1])).transpose()
         if self.dims[1]>1:
-            data2 = np.squeeze(data)
             nzmid, = np.nonzero(self.zgrid==0)
-            dataz0 = np.squeeze(data2[...,nzmid])
+            dataz0 = np.squeeze(data[:,:,nzmid,-1])
             self.xyimage = np.real(np.fft.ifft2(dataz0))
         else:
             self.xyimage = None
@@ -157,7 +180,7 @@ class _DataABC(object):
         plt.plot(self.ballgrid, np.abs(self.ballooning), label='Abs()')
         plt.plot(self.ballgrid, np.real(self.ballooning), label='Re()')
         plt.legend()
-        plt.title(self._plot_title())
+        plt.title(self.plot_title)
         plt.xlabel('Ballooning angle (rad/pi)')
         plt.ylabel(self.varname)
         filename_auto = self.filelabel+'_'+self.varname+'_mode'
@@ -180,14 +203,13 @@ class _DataABC(object):
             fig, ax = plt.subplots(nrows=1, ncols=2, figsize=figsize)
         # kx spectrum
         plt.sca(ax.flat[0])
-        plt.plot(self.kxgrid, log1010(np.mean(data, axis=(1,2))))
+        plt.plot(self.kxgrid, utils.log1010(np.mean(data, axis=(1,2))))
         plt.ylim(dbmin,None)
         plt.xlabel('kx')
-        title = self._plot_title()
-        plt.title(title)
+        plt.title(self.plot_title)
         # kx, z spectrum
         plt.sca(ax.flat[1])
-        plt.imshow(log1010(np.mean(data, axis=1)).transpose(),
+        plt.imshow(utils.log1010(np.mean(data, axis=1)).transpose(),
                        aspect='auto',
                        extent=[self.kxgrid[0], self.kxgrid[-1],
                                self.zgrid[0], self.zgrid[-1]],
@@ -197,18 +219,18 @@ class _DataABC(object):
         plt.clim(dbmin,0)
         plt.xlabel('kx')
         plt.ylabel('z')
-        plt.title(title)
+        plt.title(self.plot_title)
         plt.colorbar()
         if nky>1:
             # ky spectrum
             plt.sca(ax.flat[3])
-            plt.plot(self.kygrid, log1010(np.mean(data, axis=(0,2))))
+            plt.plot(self.kygrid, utils.log1010(np.mean(data, axis=(0,2))))
             plt.xlabel('ky')
             plt.ylim(dbmin,None)
-            plt.title(title)
+            plt.title(self.plot_title)
             # kx,ky spectrum
             plt.sca(ax.flat[4])
-            plt.imshow(log1010(np.mean(data, axis=2)).transpose(),
+            plt.imshow(utils.log1010(np.mean(data, axis=2)).transpose(),
                        aspect='auto',
                        extent=[self.kxgrid[0], self.kxgrid[-1],
                                self.kygrid[0], self.kygrid[-1]],
@@ -218,7 +240,7 @@ class _DataABC(object):
             plt.clim(dbmin,0)
             plt.xlabel('kx')
             plt.ylabel('ky')
-            plt.title(title)
+            plt.title(self.plot_title)
             plt.colorbar()
             # x,y image
             lx = self.params['lx']
@@ -233,10 +255,10 @@ class _DataABC(object):
             plt.colorbar()
             plt.xlabel('x')
             plt.ylabel('y')
-            plt.title(title+' z=0')
+            plt.title(self.plot_title + ' z=0')
             # ky,z spectrum
             plt.sca(ax.flat[5])
-            plt.imshow(log1010(np.mean(data, axis=0)).transpose(),
+            plt.imshow(utils.log1010(np.mean(data, axis=0)).transpose(),
                        aspect='auto',
                        extent=[self.kygrid[0], self.kygrid[-1],
                                self.zgrid[0], self.zgrid[-1]],
@@ -246,7 +268,7 @@ class _DataABC(object):
             plt.clim(dbmin,0)
             plt.xlabel('ky')
             plt.ylabel('z')
-            plt.title(title)
+            plt.title(self.plot_title)
             plt.colorbar()
         plt.tight_layout()
         filename_auto = self.filelabel+'_'+self.varname+'_spectra'
@@ -260,7 +282,7 @@ class _DataABC(object):
 
 class Moment(_DataABC):
 
-    def __init__(self, species='ions', run=None, parent=None, **kwargs):
+    def __init__(self, run=None, parent=None, species='ions', **kwargs):
         self.run = run
         self.varnames = mom_names
         self.parent = parent

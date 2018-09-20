@@ -1,7 +1,6 @@
 
 import os
 from pathlib import Path
-import struct
 import re
 import numpy as np
 
@@ -20,6 +19,10 @@ re_scanlogheader = re.compile(r'^#Run\s+\|\s+(?P<param>[a-zA-Z0-9_]+)\s')
 re_scanlog = re.compile(r'^(?P<run>[0-9]+)\s+\|\s+(?P<value>[0-9.e+-]+)\s+\|')
 re_omegafile = re.compile(r'^\s+(?P<ky>[0-9.Na-]+)\s+(?P<omi>[0-9.Na-]+)\s+(?P<omr>[0-9.Na-]+)')
 
+eps = np.finfo(np.float).eps
+
+def log1010(data):
+    return 10*np.log10(data + eps)
 
 def validate_path(path):
     pathout = Path(path)
@@ -28,25 +31,6 @@ def validate_path(path):
     if not pathout.exists():
         raise ValueError('Invalid path: {}'.format(path))
     return pathout
-
-
-def get_binary_config(nfields=None, elements=None, isdouble=None, isbig=None):
-    realsize = 4 + 4 * isdouble
-    complexsize = 2*realsize
-    intsize = 4
-    entrysize = elements * complexsize
-    leapfld = nfields * (entrysize+2*intsize)
-    if isbig:
-        nprt=(np.dtype(np.float64)).newbyteorder()
-        npct=(np.dtype(np.complex128)).newbyteorder()
-        fmt = '>idi'
-    else:
-        nprt=np.dtype(np.float64)
-        npct=np.dtype(np.complex128)
-        fmt = '=idi'
-    te = struct.Struct(fmt)
-    tesize = te.size
-    return (intsize, entrysize, leapfld, nprt, npct, te, tesize)
 
 
 def read_parameters(file=None):
