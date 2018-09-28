@@ -6,40 +6,85 @@ Created on Thu Feb 15 12:29:28 2018
 @author: drsmith
 """
 
+from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-from . import utils
-from .fields import Moment, Field
-from .vsp import Vspace
+try:
+    from .fields import Moment, Field
+    from .vsp import Vspace
+    from . import utils
+except:
+    from fields import Moment, Field
+    from vsp import Vspace
+    import utils
 
-dbmin = -30
+def concat_nrg(path='', prefix='', xscale='linear', yscale='linear'):
+    path = Path(path)
+    rundirs = sorted(path.glob(prefix+'*'))
+    nrgs = []
+    for rundir in rundirs:
+        sim=GeneNonlinear(rundir)
+        nrgs.append(sim.nrg)
+        species = sim.species
+    for i,nrg in enumerate(nrgs):
+        if i==0:
+            newnrg = nrg
+        else:
+            newnrg['time'] = np.concatenate((newnrg['time'], 
+                                             nrg['time'][1:]))
+            for sp in species:
+                nrg_sp = nrg[sp]
+                for key in nrg_sp:
+                    newnrg[sp][key] = np.concatenate((newnrg[sp][key], 
+                                                      nrg_sp[key][1:]))
+    t1 = np.searchsorted(newnrg['time'], 1.0)
+    fig, ax = plt.subplots(ncols=2, nrows=2, figsize=(9,5))
+    for key in newnrg[species[0]]:
+        if key.lower().startswith('t'):
+            plt.sca(ax[0,1])
+        elif key.lower().startswith('gam'):
+            plt.sca(ax[1,0])
+        elif key.lower().startswith('q'):
+            plt.sca(ax[1,1])
+        else:
+            plt.sca(ax[0,0])
+        for sp in species:
+            label = '{} {}'.format(sp, key)
+            plt.plot(newnrg['time'][t1:], newnrg[sp][key][t1:], label=label)
+    for axes in ax.flat:
+        axes.set_xlabel('time')
+        axes.legend()
+        axes.set_xscale(xscale)
+        axes.set_yscale(yscale)
+        if yscale is 'log':
+            axes.set_ylim(1e-1,None)
+    plt.tight_layout()
+    
 
-class _GeneABC(object):
+class GeneBaseClass(object):
 
-    def __init__(self, path=None, label=None):
-        self._path = path
-        self._label = label
-        self._set_path_label()
-            
-        # set parameter file and read parameters
-        self._set_params_file()  # implement in subclass
-        self.params = utils.read_parameters(self.paramsfile)
+    def __init__(self, path, label=''):
+
+        self._set_path_label(path, label)
+        self._set_params_file()
+
+        self.params = self._read_parameters(self.paramsfile)
         self.species = self.params['species']
-        self.nspecies = self.params['n_spec']
         self.nfields = self.params['n_fields']
         self.nmoments = self.params['n_moms']
+
         self.moment = None
         self.field = None
         self.vsp = None
-        self.energy = None
-        self.nrg = None
-
-    def _set_path_label(self):
-        self.path = utils.validate_path(self._path)
+        
+        self._continue_init()
+        
+    def _set_path_label(self, path, label):
+        self.path = utils.validate_path(path)
         self.shortpath = '/'.join(self.path.parts[-2:])
-        if self._label:
-            self.plotlabel = self._label
+        if label:
+            self.plotlabel = label
             rx = utils.re_prefix.match(self._label)
             self.filelabel = rx.group(1)
         else:
@@ -50,20 +95,55 @@ class _GeneABC(object):
         # implement in subclass
         pass
     
-    def _read_nrg(self, file=None):
-        nsp = self.nspecies
+    def _continue_init(self):
+        # implement in subclass
+        pass
+
+    def _read_parameters(self, file):
+        file_obj = utils.validate_path(file)
+        params = {'isscan':False,
+                  'species':[],
+                  'lx':0,
+                  'ly':0}
+        with file_obj.open('r') as f:
+            for line in f:
+                if utils.re_amp.match(line) or \
+                    utils.re_slash.match(line) or \
+                    utils.re_comment.match(line) or \
+                    utils.re_whitespace.match(line):
+                        continue
+                rx = utils.re_item.match(line)
+                if not rx:
+                    continue
+                if utils.re_scan.search(line):
+                    params['isscan'] = True
+                d = rx.groupdict()
+                if d['key'].lower() == 'name':
+                    params['species'].append(eval(d['value']))
+                if d['value'].lower() in ['true', 't', '.t.']:
+                    d['value'] = 'True'
+                if d['value'].lower() in ['false', 'f', '.f.']:
+                    d['value'] = 'False'
+                if d['key'].islower():
+                    d['value'] = eval(d['value'])
+                params[d['key']] = d['value']
+        params['isnonlinear'] = params['nonlinear']==True
+        return params
+
+    def _read_nrgdata(self, file):
+        nsp = len(self.species)
         data = np.empty((0,8,nsp))
         time = np.empty((0,))
-        self.nrgdecimate=1
+        decimate=1
         with file.open() as f:
             for i,line in enumerate(f):
                 if i >= 3000:
-                    self.nrgdecimate=20
+                    decimate=20
                     break
         with file.open() as f:
             for i,line in enumerate(f):
                 itime = i//(nsp+1)
-                if itime%self.nrgdecimate != 0:
+                if itime%decimate != 0:
                     continue
                 iline = i%(nsp+1)
                 if iline == 0:
@@ -75,17 +155,46 @@ class _GeneABC(object):
                     data[-1,:,iline-1] = np.array(values)
                 else:
                     raise ValueError(str(iline))
-        self.nrg = {'time':time,
-                    'noutputs':itime+1}
+        nrgdata = {'time':time}
         for i in range(nsp):
-            self.nrg[self.species[i]] = {'nsq':data[:,0,i],
-                                         'uparsq':data[:,1,i],
-                                         'tparsq':data[:,2,i],
-                                         'tperpsq':data[:,3,i],
-                                         'games':data[:,4,i],
-                                         'gamem':data[:,5,i],
-                                         'qes':data[:,6,i],
-                                         'qem':data[:,7,i]}
+            nrgdata[self.species[i]] = {'nsq':data[:,0,i],
+                                        'uparsq':data[:,1,i],
+                                        'tparsq':data[:,2,i],
+                                        'tperpsq':data[:,3,i],
+                                        'games':data[:,4,i],
+                                        'gamem':data[:,5,i],
+                                        'qes':data[:,6,i],
+                                        'qem':data[:,7,i]}
+        return nrgdata
+
+    def _read_energy(self, file):
+        data = np.empty((0,14))
+        with file.open() as f:
+            for i,line in enumerate(f):
+                if i%20 != 0 or i<=14:
+                    continue
+                rx = utils.re_energy.match(line)
+                linedata = np.empty((1,14))
+                for i,s in enumerate(rx.groups()):
+                    if s == 'NaN':
+                        linedata[0,i] = np.NaN
+                    else:
+                        linedata[0,i] = eval(s)
+                data = np.append(data, linedata, axis=0)
+        return {'time':data[:,0],
+                'etot':data[:,1],
+                'ddtetot':data[:,2],
+                'drive':data[:,3],
+                'heatsrc':data[:,4],
+                'colldiss':data[:,5],
+                'hypvdiss':data[:,6],
+                'hypzdiss':data[:,7],
+                'nonlinear':data[:,9],
+                'curvmisc':data[:,11],
+                'convergance':data[:,12],
+                'deltae':data[:,13],
+                'netdrive':np.sum(data[:,3:12],axis=1),
+                'grossdrive':np.sum(data[:,3:5],axis=1)}
 
     def get_moment(self, tind=-1, ivar=0, run=None, species='ions'):
         self.moment = Moment(tind=tind, ivar=ivar, run=run, 
@@ -98,13 +207,9 @@ class _GeneABC(object):
         self.vsp = Vspace(tind=tind, run=run, parent=self)
 
 
-class GeneLinearScan(_GeneABC):
+class GeneLinearScan(GeneBaseClass):
 
-    def __init__(self, path='ref03/scanfiles0015', label=''):
-        super().__init__(path=path, label=label)
-        self.scanlog = None
-        self.nscans = None
-        self.omega = None
+    def _continue_init(self):
         self._read_scanlog()
         self._read_omega()
 
@@ -161,54 +266,6 @@ class GeneLinearScan(_GeneABC):
         self.nscans = len(output[scanparam])
         self.omega = output
 
-    def _read_nrg_scan(self):
-        nrgscan = []
-        scanparam = self.scanlog['paramname']
-        scanvalues = self.scanlog['paramvalues']
-        for i,file in enumerate(sorted(self.path.glob('nrg*'))):
-            run = int(file.name[-4:])
-            self.nrg = utils.read_nrg(self.path / 'nrg_{:04d}'.format(run),
-                                species=self.species)
-            self.nrg.update({scanparam:scanvalues[i]})
-            nrgscan.append(self.nrg)
-        return nrgscan
-
-    def overview(self):
-        self.grid()
-        self.plot_omega()
-        for i in np.arange(1,self.nscans+1,3):
-            self.get_field(run=i)
-            self.field.plot_mode()
-        parity = np.empty(0)
-        wc = np.empty(0)
-        dtmax = np.empty(0)
-        wcperstep = np.empty(0)
-        for i in range(self.nscans):
-            self.get_field(run=i+1)
-            parity = np.append(parity, self.field.parity)
-            wc = np.append(wc, self.field.wcperunittimepercpu)
-            dtmax = np.append(dtmax, self.field.dtmax)
-            wcperstep = np.append(wcperstep, 
-                                  self.field.wcperstep/self.field.nprocs)
-        f,ax = plt.subplots(nrows=2,ncols=2)
-        ax.flat[0].semilogy(parity, '-x', label=self.plotlabel)
-        ax.flat[0].set_ylabel('parity')
-        ax.flat[1].semilogy(wc, '-x', label=self.plotlabel)
-        ax.flat[1].set_ylabel(r'wc/tau/cpu')
-        ax.flat[2].semilogy(dtmax, '-x', label=self.plotlabel)
-        ax.flat[2].set_ylabel(r'tau/step')
-        ax.flat[3].plot(wcperstep, '-x', label=self.plotlabel)
-        ax.flat[3].set_ylabel(r'wc/step/cpu')
-        for a in ax.flat:
-            a.set_xlabel('run number')
-            a.legend()
-        
-#    def get_moment(self, run=1, **kwargs):
-#        super().get_moment(run=run, **kwargs)
-#
-#    def get_field(self, run=1, **kwargs):
-#        super().get_field(run=run, **kwargs)
-        
     def plot_omega(self, xscale='linear', gammascale='linear', 
                    filename='', oplot=[], save=False, index=False):
         fig, axes = plt.subplots(nrows=5, figsize=(6,6.75), sharex=True)
@@ -283,9 +340,17 @@ class GeneLinearScan(_GeneABC):
             fig.savefig(filename+'.pdf')
 
     def plot_nsq(self, species='ions', save=False, filename=''):
-        nrgdata = self._read_nrg_scan()
+        all_nrg = []
         scanparam = self.scanlog['paramname']
-        nruns = len(nrgdata)
+        scanvalues = self.scanlog['paramvalues']
+        for i,file in enumerate(sorted(self.path.glob('nrg*'))):
+            run = int(file.name[-4:])
+            nrgfile = self.path / 'nrg_{:04d}'.format(run)
+            single_nrg = self._read_nrgdata(nrgfile)
+            single_nrg.update({scanparam:scanvalues[i]})
+            all_nrg.append(single_nrg)
+        scanparam = self.scanlog['paramname']
+        nruns = len(all_nrg)
         nlines = 4
         nax = nruns//nlines + int(bool(nruns%nlines))
         ncol = nax//2 + nax%2
@@ -296,7 +361,7 @@ class GeneLinearScan(_GeneABC):
             for j in range(nlines):
                 if i >= nruns:
                     break
-                nrg = nrgdata[i]
+                nrg = all_nrg[i]
                 time = nrg['time']
                 data = nrg[species]
                 scanvalue = nrg[scanparam]
@@ -317,50 +382,32 @@ class GeneLinearScan(_GeneABC):
             fig.savefig(filename+'.pdf')
 
     def plot_energy(self, run):
-        fig, axes = plt.subplots()
         datafile = self.path / 'energy_{:04d}'.format(run)
-        data = utils.read_energy(self.path / 'energy_{:04}'.format(run))
-        axes.plot(data['time'], -data['colldiss']/data['grossdrive'], label='coll')
-        axes.plot(data['time'], -data['hypzdiss']/data['grossdrive'], label='hypz')
-        axes.plot(data['time'], -data['hypvdiss']/data['grossdrive'], label='hypv')
-        axes.plot(data['time'], np.abs(data['curvmisc'])/data['grossdrive'], label='misc')
-        axes.legend()
-        axes.set_xlabel('Time (c_s/a)')
-        axes.set_ylabel('Diss. / Drive')
-        axes.set_title('/'.join(datafile.parts[-3:]))
-        axes.set_yscale('log')
-        axes.set_ylim([1e-4,1e0])
-        fig.tight_layout()
+        energydata = self._read_energy(datafile)
+        plt.figure()
+        plt.plot(energydata['time'], -energydata['colldiss']/energydata['grossdrive'], label='coll')
+        plt.plot(energydata['time'], -energydata['hypzdiss']/energydata['grossdrive'], label='hypz')
+        plt.plot(energydata['time'], -energydata['hypvdiss']/energydata['grossdrive'], label='hypv')
+        plt.plot(energydata['time'], np.abs(energydata['curvmisc'])/energydata['grossdrive'], label='misc')
+        plt.legend()
+        plt.xlabel('Time (c_s/a)')
+        plt.ylabel('Diss. / Drive')
+        plt.title('/'.join(datafile.parts[-3:]))
+        plt.yscale('log')
+        plt.ylim([1e-4,1e0])
+        plt.tight_layout()
         
-    def plot_modes(self, runs=None):
-        if runs is not None and not isinstance(runs,(list,tuple,np.ndarray)):
-            runs = [runs]
-        if runs is None:
-            runs = np.arange(self.nscans)
-        for i in runs:
-            self.get_field(run=i)
-            self.field.plot_mode()
 
+class GeneNonlinear(GeneBaseClass):
 
-class GeneNonlinearRun(_GeneABC):
-
-    def __init__(self, path='ref07/run01', label=''):
-        super().__init__(path=path, label=label)
+    def _continue_init(self):
         self._calc_grid()
-        self._read_nrg()
-        self._read_energy()
-        self.lx = self.params['lx']
-        self.ly = self.params['ly']
+        self.nrg = self._read_nrgdata(self.path / 'nrg.dat')
+        self.energy = self._read_energy(self.path / 'energy.dat')
 
     def _set_params_file(self):
         self.paramsfile = self.path / 'parameters.dat'
 
-    def _read_energy(self):
-        self.energy = utils.read_energy(self.path / 'energy.dat')
-
-    def _read_nrg(self):
-        super()._read_nrg(file=self.path/'nrg.dat')
-        
     def _calc_grid(self):
         self.dims = np.array([self.params['nx0'],
                               self.params['nky0'],
@@ -372,23 +419,8 @@ class GeneNonlinearRun(_GeneABC):
                                     self.domain[1]/self.dims[1]])
         self.kresolution = np.array([2*np.pi/self.domain[0],
                                      2*np.pi/self.domain[1]])
-        self.kmax = self.kresolution * self.dims[0:2] *np.array([0.5,1])
+        self.kmax = self.kresolution * self.dims[0:2] * np.array([0.5,1])
 
-#    def grid(self):
-#        super().grid()
-#        print('lx, ly domain: {:.2f}, {:.2f}'.format(*self.domain))
-#        print('xres, yres: {:.3f}, {:.2f}'.format(*self.resolution))
-#        print('kxmax, kymax: {:.3f}, {:.3f}'.format(*self.kmax))
-#        print('kxres, kyres: {:.3f}, {:.3f}'.format(*self.kresolution))
-#        print('kymin*shat*lx: {:.3f}'.format(
-#                self.kresolution[1]*self.params['shat']*self.domain[0]))
-#        if not self.nrg:
-#            self._read_nrg()
-#        nrgtime = self.nrg['time']
-#        print('nrg min/max time: {:.3f} - {:.3f}'.format(
-#                nrgtime[0], nrgtime[-1]))
-#        print('nrg timesteps: {:d}'.format(nrgtime.size*20))
-        
     def plot_kxky(self, species='ions'):
         fig, ax = plt.subplots(nrows=2, ncols=3, figsize=[9,5])
         tind = [-3,-2,-1]
@@ -436,7 +468,7 @@ class GeneNonlinearRun(_GeneABC):
                             self.moment.varname))
             plt.xlabel('kx')
         for axx in ax.flat:
-            axx.set_ylim(dbmin,None)
+            axx.set_ylim(-30,None)
             axx.set_title(self.shortpath)
             axx.legend()
         plt.tight_layout()
@@ -461,8 +493,8 @@ class GeneNonlinearRun(_GeneABC):
             plt.imshow(var.xyimage.transpose(),
                        origin='lower',
                        cmap=mpl.cm.seismic,
-                       extent=[-self.lx/2, self.lx/2,
-                               -self.ly/2, self.ly/2],
+                       extent=[-self.domain[0]/2, self.domain[0]/2,
+                               -self.domain[1]/2, self.domain[1]/2],
                        interpolation='bilinear',
                        aspect='equal')
             plt.colorbar()
@@ -473,11 +505,9 @@ class GeneNonlinearRun(_GeneABC):
         plt.tight_layout()
 
     def plot_nrg(self):
-        if not self.nrg:
-            self._read_nrg()
         time = self.nrg['time']
         t1 = np.searchsorted(time, 1.0)
-        fig, ax = plt.subplots(ncols=self.nspecies, nrows=2, figsize=(9,5))
+        fig, ax = plt.subplots(ncols=len(self.species), nrows=2, figsize=(9,5))
         for i,sp in enumerate(self.species):
             nrg = self.nrg[sp]
             for key,value in nrg.items():
@@ -495,15 +525,12 @@ class GeneNonlinearRun(_GeneABC):
         plt.tight_layout()
 
     def plot_energy(self):
-        if not self.energy:
-            self._read_energy()
-        edata = self.energy
-        time = edata['time']
+        time = self.energy['time']
         plt.figure()
         for key in ['drive','heatsrc','colldiss','hypvdiss','hypzdiss',
                    'nonlinear','curvmisc']:
-            label = '{} ({:.1e})'.format(key, edata[key][-1])
-            plt.plot(time, edata[key], label=label)
+            label = '{} ({:.1e})'.format(key, self.energy[key][-1])
+            plt.plot(time, self.energy[key], label=label)
         plt.ylabel('energy term')
         plt.xlabel('time')
         plt.legend()
@@ -511,11 +538,19 @@ class GeneNonlinearRun(_GeneABC):
 
 if __name__=='__main__':
     plt.close('all')
-    minb = GeneLinearScan()
-#    minb.plot_omega()
-#    minb.plot_nsq()
-#    minb.plot_energy(run=4)
-#    nl = GeneNonlinearRun()
-#    nl.get_field()
-#    nl.field.plot_kxky_spectrum()
-#    nl.plot_nrg()
+    import os
+    GENEWORK = Path(os.getenv('GENEWORK'))
+    # linear scan simulation
+    linear = GeneLinearScan(GENEWORK / 'ref03' / 'scanfiles0037')
+    linear.plot_omega()
+    linear.plot_nsq()
+    linear.plot_energy(run=4)
+    linear.get_field(run=4)
+    linear.field.plot_mode()
+    # nonlinear simulation
+    nonlinear = GeneNonlinear(GENEWORK / 'nlruns' / 'minb09' / 'run01-14840423')
+    nonlinear.plot_nrg()
+    nonlinear.plot_xyimages()
+    nonlinear.plot_kxky()
+    nonlinear.plot_energy()
+    

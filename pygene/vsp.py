@@ -12,7 +12,10 @@ import numpy as np
 from scipy.interpolate import RectBivariateSpline
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-from . import utils
+try:
+    from . import utils
+except:
+    import utils
 
 
 class Vspace(object):

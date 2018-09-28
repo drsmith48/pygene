@@ -5,7 +5,10 @@ import numpy as np
 from scipy import signal
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-from . import utils
+try:
+    from . import utils
+except:
+    import utils
 
 field_names = ['phi', 'A_para', 'B_para']
 mom_names = ['dens', 'T_para', 'T_perp', 'Q_para', 'Q_perp', 'u_para']
@@ -63,10 +66,10 @@ class _DataABC(object):
 
     def _read_paramsfile(self):
         if self.run:
-            self.paramsfile = self.parent.path / 'parameters_{:04d}'.format(self.run)
+            paramsfile = self.parent.path / 'parameters_{:04d}'.format(self.run)
+            self.params = self.parent._read_parameters(paramsfile)
         else:
-            self.paramsfile = self.parent.path / 'parameters.dat'
-        self.params = utils.read_parameters(self.paramsfile)
+            self.params = self.parent.params
         self.dims = np.array([self.params['nx0'],
                               self.params['nky0'],
                               self.params['nz0']])
@@ -183,6 +186,15 @@ class _DataABC(object):
         plt.title(self.plot_title)
         plt.xlabel('Ballooning angle (rad/pi)')
         plt.ylabel(self.varname)
+        plt.tight_layout()
+        xmax = self.ballgrid.max()
+        itwopi = 0
+        ylim = plt.gca().get_ylim()
+        while itwopi<=6 and itwopi<=xmax:
+            plt.plot(np.ones(2)*itwopi, ylim, color='tab:gray', linestyle='--')
+            if itwopi != 0:
+                plt.plot(-np.ones(2)*itwopi, ylim, color='tab:gray', linestyle='--')
+            itwopi += 2
         filename_auto = self.filelabel+'_'+self.varname+'_mode'
         if self.run:
             filename_auto += '_r{:02d}'.format(self.run)
