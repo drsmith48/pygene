@@ -1,2 +1,2 @@
 
-from .main import GeneLinearScan, GeneNonlinear, concat_nrg
+from .main import GeneLinearScan, GeneNonlinear, concat_nrg, genehome

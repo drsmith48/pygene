@@ -6,7 +6,11 @@ Created on Thu Feb 15 12:29:28 2018
 @author: drsmith
 """
 
+import os
 from pathlib import Path
+import tkinter as tk
+from tkinter import filedialog
+
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
@@ -18,6 +22,12 @@ except:
     from fields import Moment, Field
     from vsp import Vspace
     import utils
+
+
+root = tk.Tk()
+root.withdraw()
+
+genehome = Path(os.getenv('GENEHOME'))
 
 def concat_nrg(path='', prefix='', xscale='linear', yscale='linear'):
     path = Path(path)
@@ -64,7 +74,10 @@ def concat_nrg(path='', prefix='', xscale='linear', yscale='linear'):
 
 class GeneBaseClass(object):
 
-    def __init__(self, path, label=''):
+    def __init__(self, path=None, label=None):
+        
+        if not path:
+            path = Path(filedialog.askdirectory())
 
         self._set_path_label(path, label)
         self._set_params_file()
@@ -73,6 +86,7 @@ class GeneBaseClass(object):
         self.species = self.params['species']
         self.nfields = self.params['n_fields']
         self.nmoments = self.params['n_moms']
+        self._calc_refs()
 
         self.moment = None
         self.field = None
@@ -85,7 +99,7 @@ class GeneBaseClass(object):
         self.shortpath = '/'.join(self.path.parts[-2:])
         if label:
             self.plotlabel = label
-            rx = utils.re_prefix.match(self._label)
+            rx = utils.re_prefix.match(label)
             self.filelabel = rx.group(1)
         else:
             self.plotlabel = ''
@@ -104,7 +118,13 @@ class GeneBaseClass(object):
         params = {'isscan':False,
                   'species':[],
                   'lx':0,
-                  'ly':0}
+                  'ly':0,
+                  'Bref':1.0,
+                  'Tref':1.0,
+                  'nref':1.0,
+                  'mref':2.0,
+                  'Lref':1.0,
+                  'minor_r':1.0}
         with file_obj.open('r') as f:
             for line in f:
                 if utils.re_amp.match(line) or \
@@ -195,6 +215,30 @@ class GeneBaseClass(object):
                 'deltae':data[:,13],
                 'netdrive':np.sum(data[:,3:12],axis=1),
                 'grossdrive':np.sum(data[:,3:5],axis=1)}
+    
+    def convert(self, value):
+        if isinstance(value, str):
+            return eval(value)
+        else:
+            return value
+
+    def _calc_refs(self):
+        e = 1.6022e-19 # C
+        k = 1.3807e-23
+        pro_mass = 1.6726e-27 # kg
+        self.ref = {}
+        self.ref['b'] = self.convert(self.params['Bref']) # T
+        self.ref['t_ev'] = 1e3 * self.convert(self.params['Tref']) # keV -> eV
+        self.ref['t_joules'] = e * self.ref['t_ev'] # J
+        self.ref['n'] = self.convert(self.params['nref']) # 1e19/m**3
+        self.ref['l'] = self.convert(self.params['Lref']) # m
+        self.ref['m'] = pro_mass * self.convert(self.params['mref']) # ref. mass
+        self.ref['c'] = np.sqrt(self.ref['t_joules'] / self.ref['m'])
+        self.ref['Omega'] = e*self.ref['b'] / self.ref['m']
+        self.ref['rho'] = self.ref['c'] / self.ref['Omega']
+        self.ref['rhostar'] = self.ref['rho'] / self.ref['l']
+        self.ref['gam_gb'] = self.ref['c'] * self.ref['n'] * self.ref['rhostar']**2
+        self.ref['q_gb'] = self.ref['gam_gb'] * self.ref['t_ev'] * e/k
 
     def get_moment(self, tind=-1, ivar=0, run=None, species='ions'):
         self.moment = Moment(tind=tind, ivar=ivar, run=run, 
@@ -229,12 +273,15 @@ class GeneLinearScan(GeneBaseClass):
                     rx = utils.re_scanlog.match(line)
                     value = float(rx.groupdict()['value'])
                     scanlog['paramvalues'] = np.append(scanlog['paramvalues'], value)
+        if scanlog['paramvalues'].size == 0:
+            scanlog['paramname'] = 'kymin'
         self.scanlog = scanlog
 
     def _read_omega(self):
-        scanparam = self.scanlog['paramname']
         scanvalues = self.scanlog['paramvalues']
+        scanparam = self.scanlog['paramname']
         output = {scanparam:np.empty(0),
+                  'ky':np.empty(0),
                   'omi':np.empty(0),
                   'omr':np.empty(0),
                   'phiparity':np.empty(0),
@@ -248,14 +295,18 @@ class GeneLinearScan(GeneBaseClass):
                     print('bad omega file: {}'.format(file.as_posix()))
                     continue
                 for key,value in rx.groupdict().items():
-                    if key=='ky':
-                        continue
+#                    if key=='ky':
+#                        continue
                     v = eval(value)
                     if v==0.0 or (key=='omi' and v<0):
                         v = np.NaN
                     output[key] = np.append(output[key], v)
-                output[scanparam] = np.append(output[scanparam], 
-                                              scanvalues[i])
+                if i < scanvalues.size:
+                    output[scanparam] = np.append(output[scanparam], 
+                                                  scanvalues[i])
+                else:
+                    output[scanparam] = np.append(output[scanparam],
+                                                  output['ky'][-1])
             self.get_field(run=i+1)
             output['phiparity'] = np.append(output['phiparity'], 
                                          self.field.parity)
@@ -265,6 +316,10 @@ class GeneLinearScan(GeneBaseClass):
                                          self.field.gridosc)
         self.nscans = len(output[scanparam])
         self.omega = output
+        
+    def plot_kx(self, run=1):
+        fig, axes = plt.subplots(nrows=self.nspecies, ncols=3, sharex=True)
+        
 
     def plot_omega(self, xscale='linear', gammascale='linear', 
                    filename='', oplot=[], save=False, index=False):
@@ -320,9 +375,9 @@ class GeneLinearScan(GeneBaseClass):
         axes[1].set_ylim()
         axes[2].set_ylim(-1,1)
         axes[2].set_ylabel('phi parity')
-        axes[3].set_yscale('log')
+#        axes[3].set_yscale('log')
         axes[3].set_ylabel('tail size')
-        axes[4].set_yscale('log')
+#        axes[4].set_yscale('log')
         axes[4].set_ylabel('grid osc.')
         if index:
             axes[-1].set_xlabel('index')
@@ -538,19 +593,19 @@ class GeneNonlinear(GeneBaseClass):
 
 if __name__=='__main__':
     plt.close('all')
-    import os
-    GENEWORK = Path(os.getenv('GENEWORK'))
     # linear scan simulation
-    linear = GeneLinearScan(GENEWORK / 'ref03' / 'scanfiles0037')
+    linear = GeneLinearScan(genehome / 'ref03' / 'scanfiles0037')
     linear.plot_omega()
     linear.plot_nsq()
     linear.plot_energy(run=4)
     linear.get_field(run=4)
     linear.field.plot_mode()
     # nonlinear simulation
-    nonlinear = GeneNonlinear(GENEWORK / 'nlruns' / 'minb09' / 'run01-14840423')
+    nonlinear = GeneNonlinear(genehome / 'nlruns' / 'minb09' / 'run01-14840423')
     nonlinear.plot_nrg()
     nonlinear.plot_xyimages()
     nonlinear.plot_kxky()
     nonlinear.plot_energy()
+    nonlinear.get_field()
+    nonlinear.field.plot_spectra()
     

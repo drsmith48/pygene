@@ -37,6 +37,25 @@ class _DataABC(object):
             isdouble=self.params['PRECISION']=='DOUBLE',
             isbig=self.params['ENDIANNESS']=='BIG')
         self.get_data()
+        self._calc_refs()
+        
+    def convert(self, value):
+        return self.parent.convert(value)
+        
+    def _calc_refs(self):
+        self.ref = self.parent.ref
+        self.ref['kymin'] = self.convert(self.params['kymin'])
+        self.ref['q0'] = self.convert(self.params['q0'])
+        self.ref['shat'] =self.convert( self.params['shat'])
+        self.ref['minor_r'] = self.convert(self.params['minor_r'])
+        self.ref['lx'] = self.params['lx']
+        self.ref['nx'] = self.params['nx0']
+        self.ref['xres'] = self.params['lx'] / self.params['nx0']
+        self.ref['Delta-r'] = 1/(self.ref['kymin']*self.ref['shat'])
+        self.ref['m_approx'] = self.ref['kymin']/self.ref['rhostar']
+        self.ref['n_approx'] = self.ref['m_approx']/self.ref['q0']
+        self.ref['ky_n1'] = self.ref['q0']*self.ref['rhostar']
+        self.ref['nexc'] = self.params['lx']*self.params['kymin']*self.params['shat']
 
     def _set_binary_configuration(self, nfields=None, elements=None, 
                                   isdouble=None, isbig=None):
@@ -45,12 +64,6 @@ class _DataABC(object):
         intsize = 4
         entrysize = elements * complexsize
         leapfld = nfields * (entrysize+2*intsize)
-#        print('*** Fields ***')
-#        print('complex size', complexsize)
-#        print('elements', elements)
-#        print('entry size', entrysize)
-#        print('nfields', nfields)
-#        print('leapfld', leapfld)
         if isbig:
             nprt=(np.dtype(np.float64)).newbyteorder()
             npct=(np.dtype(np.complex128)).newbyteorder()
@@ -141,10 +154,16 @@ class _DataABC(object):
                 data[:,:,:,i] = flatdata.reshape(tuple(self.dims[::-1])).transpose()
         if self.dims[1]>1:
             nzmid, = np.nonzero(self.zgrid==0)
-            dataz0 = np.squeeze(data[:,:,nzmid,-1])
-            self.xyimage = np.real(np.fft.ifft2(dataz0))
+#            dataz0 = np.squeeze(data[:,:,nzmid,-1])
+            xyz = np.real(np.fft.ifft2(np.squeeze(data[:,:,:,-1]), 
+                                      axes=[0,1]))
+            self.xyimage = np.squeeze(xyz[...,nzmid])
+            self.xzimage = np.squeeze(np.sum(xyz, axis=-1))
+#            self.xyimage = np.real(np.fft.ifft2(dataz0))
         else:
             self.xyimage = None
+            self.xzimage = np.real(np.fft.ifft(np.squeeze(data[:,0,:,-1]),
+                                               axis=0))
         # roll in kx dimension to order from kxmin to kxmax
         data = np.roll(data, self.dims[0]//2-1, axis=0)
         # output data
@@ -208,28 +227,37 @@ class _DataABC(object):
         # average data over time axis
         data = np.mean(np.abs(self.data),axis=3)
         nky = self.dims[1]
-        figsize = [11,5.5]
         if nky>1:
-            fig, ax = plt.subplots(nrows=2, ncols=3, figsize=figsize)
+            fig, ax = plt.subplots(nrows=2, ncols=3, figsize=[11,5.5])
         else:
-            fig, ax = plt.subplots(nrows=1, ncols=2, figsize=figsize)
+            fig, ax = plt.subplots(nrows=1, ncols=2, figsize=[8,4])
         # kx spectrum
         plt.sca(ax.flat[0])
-        plt.plot(self.kxgrid, utils.log1010(np.mean(data, axis=(1,2))))
-        plt.ylim(dbmin,None)
+        plt.plot(self.kxgrid[:-2], utils.log1010(np.mean(data[:-2,:,:], axis=(1,2))))
+#        plt.ylim(dbmin,None)
         plt.xlabel('kx')
+        plt.ylabel('10log10(sum ky,z |var|^2)')
         plt.title(self.plot_title)
-        # kx, z spectrum
+        # x, z image
         plt.sca(ax.flat[1])
-        plt.imshow(utils.log1010(np.mean(data, axis=1)).transpose(),
-                       aspect='auto',
-                       extent=[self.kxgrid[0], self.kxgrid[-1],
-                               self.zgrid[0], self.zgrid[-1]],
-                               origin='lower',
-                               cmap=mpl.cm.gnuplot,
-                               interpolation='bilinear')
-        plt.clim(dbmin,0)
-        plt.xlabel('kx')
+        plt.imshow(self.xzimage.transpose(),
+                   aspect='auto',
+                   extent=[-self.params['lx']/2, self.params['lx']/2,
+                           self.zgrid[0], self.zgrid[-1]],
+                   origin='lower',
+                   cmap=mpl.cm.seismic,
+                   vmin=-np.amax(np.abs(self.xzimage)),
+                   vmax=np.amax(np.abs(self.xzimage)),
+                   interpolation='bilinear')
+#        plt.imshow(utils.log1010(np.mean(data[:-2,:,:],axis=1).transpose()),
+#                   aspect='auto',
+#                   extent=[self.kxgrid[0], self.kxgrid[-2],
+#                           self.zgrid[0], self.zgrid[-1]],
+#                   origin='lower',
+#                   cmap=mpl.cm.gnuplot,
+#                   interpolation='bilinear')
+#        plt.clim(dbmin,0)
+        plt.xlabel('x')
         plt.ylabel('z')
         plt.title(self.plot_title)
         plt.colorbar()

@@ -90,10 +90,10 @@ class Vspace(object):
         
     def _read_paramsfile(self):
         if self.run:
-            self.paramsfile = self.parent.path / 'parameters_{:04d}'.format(self.run)
+            paramsfile = self.parent.path / 'parameters_{:04d}'.format(self.run)
+            self.params = self.parent._read_parameters(paramsfile)
         else:
-            self.paramsfile = self.parent.path / 'parameters.dat'
-        self.params = utils.read_parameters(self.paramsfile)
+            self.params = self.parent.params
         self.vdims = np.array([self.params['nz0'],
                                self.params['nv0'],
                                self.params['nw0']])
