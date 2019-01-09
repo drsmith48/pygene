@@ -2,7 +2,9 @@
 
 PYGENE======
 
-Python tools for GENE (http://genecode.org/)
+Python tools to analyze GENE output.  http://genecode.org/
+
+Runs on Python 2/3.  Built with ``numpy`` and ``matplotlib``.
 
 Example usage-------------
 
@@ -25,7 +27,3 @@ Example usage-------------
   scan.get_vsp(run=7)
   scan.plot_vspace()
 
-Notes
------
-
-**PYGENE** is developed for Python3, but sources files are pasteurized (PYPI ``future`` package) to run with Python2.
