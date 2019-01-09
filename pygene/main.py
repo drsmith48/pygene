@@ -1,12 +1,16 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Thu Feb 15 12:29:28 2018
+from __future__ import division
+from __future__ import print_function
+from __future__ import unicode_literals
+from __future__ import absolute_import
 
-@author: drsmith
-"""
+from builtins import int
+from builtins import zip
+from builtins import range
+from builtins import str
+from future import standard_library
+standard_library.install_aliases()
 
-import os
+
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog
@@ -27,7 +31,7 @@ except:
 root = tk.Tk()
 root.withdraw()
 
-genehome = Path(os.getenv('GENEHOME'))
+genehome = utils.genehome
 
 def concat_nrg(path='', prefix='', xscale='linear', yscale='linear'):
     path = Path(path)
@@ -589,23 +593,3 @@ class GeneNonlinear(GeneBaseClass):
         plt.ylabel('energy term')
         plt.xlabel('time')
         plt.legend()
-
-
-if __name__=='__main__':
-    plt.close('all')
-    # linear scan simulation
-    linear = GeneLinearScan(genehome / 'ref03' / 'scanfiles0037')
-    linear.plot_omega()
-    linear.plot_nsq()
-    linear.plot_energy(run=4)
-    linear.get_field(run=4)
-    linear.field.plot_mode()
-    # nonlinear simulation
-    nonlinear = GeneNonlinear(genehome / 'nlruns' / 'minb09' / 'run01-14840423')
-    nonlinear.plot_nrg()
-    nonlinear.plot_xyimages()
-    nonlinear.plot_kxky()
-    nonlinear.plot_energy()
-    nonlinear.get_field()
-    nonlinear.field.plot_spectra()
-    

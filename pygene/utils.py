@@ -1,10 +1,20 @@
+from __future__ import division
+from __future__ import unicode_literals
+from __future__ import print_function
+from __future__ import absolute_import
+
+from builtins import range
+from future import standard_library
+standard_library.install_aliases()
+
 
 import os
 from pathlib import Path
 import re
 import numpy as np
 
-GENEWORK = Path(os.environ['GENEWORK'])
+genehome = Path(os.getenv('GENEHOME'))
+
 
 re_nrgline = re.compile(r'^'+''.join([r'\s+([0-9E.+-]+)' for i in range(8)]))
 re_energy = re.compile(r'^'+''.join([r'\s+([0-9ENan.+-]+)' for i in range(14)]))
@@ -27,7 +37,7 @@ def log1010(data):
 def validate_path(path):
     pathout = Path(path)
     if not pathout.is_absolute():
-        pathout = GENEWORK / path
+        pathout = genehome / path
     if not pathout.exists():
         raise ValueError('Invalid path: {}'.format(path))
     return pathout
