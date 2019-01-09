@@ -6,7 +6,7 @@ Python tools for GENE (http://genecode.org/)
 
 Example usage-------------
 
-`scanscript` calculation in `problem-003` directory::
+``scanscript`` calculation in ``problem-003`` directory::
 
   import pygene
   # load a `scanscript` output directory
@@ -28,4 +28,4 @@ Example usage-------------
 Notes
 -----
 
-**PYGENE** is developed for Python3, but sources files are pasteurized (PYPI `future` package) to run with Python2.
+**PYGENE** is developed for Python3, but sources files are pasteurized (PYPI ``future`` package) to run with Python2.
