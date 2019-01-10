@@ -2,14 +2,12 @@ from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
 from __future__ import absolute_import
-
 from builtins import int
 from builtins import zip
 from builtins import range
 from builtins import str
 from future import standard_library
 standard_library.install_aliases()
-
 
 from pathlib import Path
 import tkinter as tk
@@ -18,70 +16,23 @@ from tkinter import filedialog
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-try:
-    from .fields import Moment, Field
-    from .vsp import Vspace
-    from . import utils
-except:
-    from fields import Moment, Field
-    from vsp import Vspace
-    import utils
 
+from .fields import Moment, Field
+from .vsp import Vspace
+from . import utils
 
 root = tk.Tk()
 root.withdraw()
 
 genehome = utils.genehome
 
-def concat_nrg(path='', prefix='', xscale='linear', yscale='linear'):
-    path = Path(path)
-    rundirs = sorted(path.glob(prefix+'*'))
-    nrgs = []
-    for rundir in rundirs:
-        sim=GeneNonlinear(rundir)
-        nrgs.append(sim.nrg)
-        species = sim.species
-    for i,nrg in enumerate(nrgs):
-        if i==0:
-            newnrg = nrg
-        else:
-            newnrg['time'] = np.concatenate((newnrg['time'], 
-                                             nrg['time'][1:]))
-            for sp in species:
-                nrg_sp = nrg[sp]
-                for key in nrg_sp:
-                    newnrg[sp][key] = np.concatenate((newnrg[sp][key], 
-                                                      nrg_sp[key][1:]))
-    t1 = np.searchsorted(newnrg['time'], 1.0)
-    fig, ax = plt.subplots(ncols=2, nrows=2, figsize=(9,5))
-    for key in newnrg[species[0]]:
-        if key.lower().startswith('t'):
-            plt.sca(ax[0,1])
-        elif key.lower().startswith('gam'):
-            plt.sca(ax[1,0])
-        elif key.lower().startswith('q'):
-            plt.sca(ax[1,1])
-        else:
-            plt.sca(ax[0,0])
-        for sp in species:
-            label = '{} {}'.format(sp, key)
-            plt.plot(newnrg['time'][t1:], newnrg[sp][key][t1:], label=label)
-    for axes in ax.flat:
-        axes.set_xlabel('time')
-        axes.legend()
-        axes.set_xscale(xscale)
-        axes.set_yscale(yscale)
-        if yscale is 'log':
-            axes.set_ylim(1e-1,None)
-    plt.tight_layout()
-    
-
 class GeneBaseClass(object):
 
     def __init__(self, path=None, label=None):
         
         if not path:
-            path = Path(filedialog.askdirectory())
+            path = filedialog.askdirectory(initialdir=genehome.as_posix())
+            path = Path(path)
 
         self._set_path_label(path, label)
         self._set_params_file()
@@ -593,3 +544,46 @@ class GeneNonlinear(GeneBaseClass):
         plt.ylabel('energy term')
         plt.xlabel('time')
         plt.legend()
+
+
+def concat_nrg(path='', prefix='', xscale='linear', yscale='linear'):
+    path = Path(path)
+    rundirs = sorted(path.glob(prefix+'*'))
+    nrgs = []
+    for rundir in rundirs:
+        sim=GeneNonlinear(rundir)
+        nrgs.append(sim.nrg)
+        species = sim.species
+    for i,nrg in enumerate(nrgs):
+        if i==0:
+            newnrg = nrg
+        else:
+            newnrg['time'] = np.concatenate((newnrg['time'], 
+                                             nrg['time'][1:]))
+            for sp in species:
+                nrg_sp = nrg[sp]
+                for key in nrg_sp:
+                    newnrg[sp][key] = np.concatenate((newnrg[sp][key], 
+                                                      nrg_sp[key][1:]))
+    t1 = np.searchsorted(newnrg['time'], 1.0)
+    fig, ax = plt.subplots(ncols=2, nrows=2, figsize=(9,5))
+    for key in newnrg[species[0]]:
+        if key.lower().startswith('t'):
+            plt.sca(ax[0,1])
+        elif key.lower().startswith('gam'):
+            plt.sca(ax[1,0])
+        elif key.lower().startswith('q'):
+            plt.sca(ax[1,1])
+        else:
+            plt.sca(ax[0,0])
+        for sp in species:
+            label = '{} {}'.format(sp, key)
+            plt.plot(newnrg['time'][t1:], newnrg[sp][key][t1:], label=label)
+    for axes in ax.flat:
+        axes.set_xlabel('time')
+        axes.legend()
+        axes.set_xscale(xscale)
+        axes.set_yscale(yscale)
+        if yscale is 'log':
+            axes.set_ylim(1e-1,None)
+    plt.tight_layout()

@@ -2,23 +2,20 @@ from __future__ import division
 from __future__ import unicode_literals
 from __future__ import print_function
 from __future__ import absolute_import
-
 from builtins import super
 from builtins import range
 from future import standard_library
 standard_library.install_aliases()
 
-
 import os
 import struct
+
 import numpy as np
 from scipy import signal
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-try:
-    from . import utils
-except:
-    import utils
+
+from . import utils
 
 field_names = ['phi', 'A_para', 'B_para']
 mom_names = ['dens', 'T_para', 'T_perp', 'Q_para', 'Q_perp', 'u_para']
