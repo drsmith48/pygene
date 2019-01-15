@@ -10,6 +10,7 @@ from future import standard_library
 standard_library.install_aliases()
 
 from pathlib import Path
+import re
 import tkinter as tk
 from tkinter import filedialog
 
@@ -17,7 +18,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 
-from .fields import Moment, Field
+from .fields_moments import Moment, Field
 from .vsp import Vspace
 from . import utils
 
@@ -34,20 +35,25 @@ class GeneBaseClass(object):
             path = filedialog.askdirectory(initialdir=genehome.as_posix())
             path = Path(path)
 
+        self._paramsfile = ''
+        self._input_parameters = {}
+        self.species = []
+        self.fields = []
+
         self._set_path_label(path, label)
         self._set_params_file()
 
-        self.params = self._read_parameters(self.paramsfile)
-        self.species = self.params['species']
-        self.nfields = self.params['n_fields']
-        self.nmoments = self.params['n_moms']
-        self._calc_refs()
+        self._get_species_fields()
+#        self.species = self._input_parameters['species']
+#        self.nfields = self._input_parameters['n_fields']
+#        self.nmoments = self._input_parameters['n_moms']
+#        self._calc_refs()
 
-        self.moment = None
-        self.field = None
-        self.vsp = None
+#        self.moment = None
+#        self.field = None
+#        self.vsp = None
         
-        self._continue_init()
+#        self._continue_init()
         
     def _set_path_label(self, path, label):
         self.path = utils.validate_path(path)
@@ -68,8 +74,47 @@ class GeneBaseClass(object):
         # implement in subclass
         pass
 
-    def _read_parameters(self, file):
-        file_obj = utils.validate_path(file)
+    def _get_species_fields(self):
+        with open(self._paramsfile) as f:
+            def get_value(pattern, default=None):
+                f.seek(0)
+                self._input_parameters[pattern] = default
+                for line in f:
+                    if re.match("^"+pattern+"\s*=",line):
+                        match = utils.re_item.match(line)
+                        value = match.group('value')
+                        if value.lower() in ['t','.t.','true','.true.']:
+                            self._input_parameters[pattern] = True
+                            break
+                        if value.lower() in ['f','.f.','false','.false.']:
+                            self._input_parameters[pattern] = False
+                            break
+                        self._input_parameters[pattern] = eval(match.group('value'))
+                        break
+            get_value('n_spec')
+            get_value('beta', 0.0)
+            get_value('bpar', False)
+            get_value('nonlinear')
+            self.fields.append('phi')
+            if self._input_parameters['beta']:
+                self.fields.append('apar')
+                if self._input_parameters['bpar']:
+                    self.fields.append('bpar')
+            for field in self.fields:
+                setattr(self, field, None)
+            f.seek(0)
+            for line in f:
+                if re.match("^name\s*=", line):
+                    match = utils.re_item.match(line)
+                    spec_name = eval(match.group('value'))
+                    self.species.append(spec_name)
+                    if len(self.species) == self._input_parameters['n_spec']:
+                        break
+            for species in self.species:
+                setattr(self, species, None)
+
+    def _read_parameters(self):
+        file_obj = utils.validate_path(self._paramsfile)
         params = {'isscan':False,
                   'species':[],
                   'lx':0,
@@ -103,7 +148,7 @@ class GeneBaseClass(object):
                     d['value'] = eval(d['value'])
                 params[d['key']] = d['value']
         params['isnonlinear'] = params['nonlinear']==True
-        return params
+        self._input_parameters = params
 
     def _read_nrgdata(self, file):
         nsp = len(self.species)
@@ -171,7 +216,7 @@ class GeneBaseClass(object):
                 'netdrive':np.sum(data[:,3:12],axis=1),
                 'grossdrive':np.sum(data[:,3:5],axis=1)}
     
-    def convert(self, value):
+    def _convert(self, value):
         if isinstance(value, str):
             return eval(value)
         else:
@@ -182,12 +227,12 @@ class GeneBaseClass(object):
         k = 1.3807e-23
         pro_mass = 1.6726e-27 # kg
         self.ref = {}
-        self.ref['b'] = self.convert(self.params['Bref']) # T
-        self.ref['t_ev'] = 1e3 * self.convert(self.params['Tref']) # keV -> eV
+        self.ref['b'] = self._convert(self._input_parameters['Bref']) # T
+        self.ref['t_ev'] = 1e3 * self._convert(self._input_parameters['Tref']) # keV -> eV
         self.ref['t_joules'] = e * self.ref['t_ev'] # J
-        self.ref['n'] = self.convert(self.params['nref']) # 1e19/m**3
-        self.ref['l'] = self.convert(self.params['Lref']) # m
-        self.ref['m'] = pro_mass * self.convert(self.params['mref']) # ref. mass
+        self.ref['n'] = self._convert(self._input_parameters['nref']) # 1e19/m**3
+        self.ref['l'] = self._convert(self._input_parameters['Lref']) # m
+        self.ref['m'] = pro_mass * self._convert(self._input_parameters['mref']) # ref. mass
         self.ref['c'] = np.sqrt(self.ref['t_joules'] / self.ref['m'])
         self.ref['Omega'] = e*self.ref['b'] / self.ref['m']
         self.ref['rho'] = self.ref['c'] / self.ref['Omega']
@@ -213,7 +258,7 @@ class GeneLinearScan(GeneBaseClass):
         self._read_omega()
 
     def _set_params_file(self):
-        self.paramsfile = self.path / 'parameters_0001'
+        self._paramsfile = self.path / 'parameters_0001'
 
     def _read_scanlog(self):
         scanfile = self.path / 'scan.log'
@@ -416,15 +461,16 @@ class GeneNonlinear(GeneBaseClass):
         self.energy = self._read_energy(self.path / 'energy.dat')
 
     def _set_params_file(self):
-        self.paramsfile = self.path / 'parameters.dat'
+        self._paramsfile = self.path / 'parameters.dat'
 
     def _calc_grid(self):
-        self.dims = np.array([self.params['nx0'],
-                              self.params['nky0'],
-                              self.params['nz0'],
-                              self.params['nv0'],
-                              self.params['nw0']])
-        self.domain = np.array([self.params['lx'], self.params['ly']])
+        self.dims = np.array([self._input_parameters['nx0'],
+                              self._input_parameters['nky0'],
+                              self._input_parameters['nz0'],
+                              self._input_parameters['nv0'],
+                              self._input_parameters['nw0']])
+        self.domain = np.array([self._input_parameters['lx'], 
+                                self._input_parameters['ly']])
         self.resolution = np.array([self.domain[0]/self.dims[0],
                                     self.domain[1]/self.dims[1]])
         self.kresolution = np.array([2*np.pi/self.domain[0],
