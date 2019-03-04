@@ -295,7 +295,7 @@ class GeneLinearScan(_GeneBaseClass):
         index=True
         if self.scanlog and self.params['scan_dims']==1:
             xdata = data[self.scanlog['paramname']]
-        else: ##
+        else: ####
             xdata = self.scans
         axes[0].plot(xdata, data['omi'], '-x', label=self.label)
         axes[1].plot(xdata, data['omr'], '-x', label=self.label)
