@@ -12,31 +12,92 @@ import struct
 import numpy as np
 from scipy.interpolate import RectBivariateSpline
 import matplotlib.pyplot as plt
-import matplotlib as mpl
 
 
 class Vspace(object):
 
-    def __init__(self, tind=-1, run=None, parent=None):
-        self.tind = tind
-        self.run = run
-        self.parent = parent
-        if self.run:
-            self.path = self.parent.path / 'vsp_{:04d}'.format(self.run)
+    def __init__(self, parent=None):
+        self.tind = None
+        self._scannum = None
+        self._parent = parent
+        self.species = self._parent.species
+        self.path = None
+        self.time = None
+#        self.shortpath = '/'.join(self.path.parts[-3:])
+#        self.plotlabel = self._parent.plotlabel
+#        self.filelabel = self._parent.filelabel
+        
+    def __call__(self, tind=None, scannum=None):
+        do_reload_data = False
+        if scannum is not None and scannum != self._scannum:
+            self._scannum = scannum
+            self._read_paramsfile()
+            self._make_grids()
+            self._set_binary_configuration()
+            self._set_vsp_path()
+            self._read_time_array()
+            if tind is None:
+                tind = -1
+            do_reload_data = True
+        if self.time is None:
+            self._set_vsp_path()
+            self._read_time_array()
+        if tind is None and self.tind is None:
+            tind = -1
+        if tind is not None:
+            tind = self._adjust_tind(tind)
+            if tind != self.tind:
+                self.tind = tind
+                do_reload_data = True
+        # load data/scan, if needed
+        if do_reload_data:
+            self._get_data()
+        return self
+    
+    def _set_vsp_path(self):
+        if self._scannum:
+            self.path = self._parent.path / 'vsp_{:04d}'.format(self._scannum)
         else:
-            self.path = self.parent.path / 'vsp.dat'
-        self.shortpath = '/'.join(self.path.parts[-3:])
-        self.plotlabel = self.parent.plotlabel
-        self.filelabel = self.parent.filelabel
-        self._read_paramsfile()
-        self._make_grids()
-        self._set_binary_configuration()
-        self.get_data()
-        self._set_plot_title()
+            self.path = self._parent.path / 'vsp.dat'
 
+    def _read_paramsfile(self):
+        if self._scannum:
+            paramsfile = self._parent.path / 'parameters_{:04d}'.format(self._scannum)
+        else:
+            paramsfile = self._parent.path / 'parameters.dat'
+        if hasattr(self._parent, '_scannum'):
+            if not isinstance(self._parent._processed_parameters, dict) or \
+                self._scannum != self._parent._processed_parameters.get('_scannum',0):
+                # current scannum does not match parent's archived scannum,
+                # so update processed parameters
+                self._parent._get_processed_parameters(paramsfile=paramsfile, 
+                                                       scannum=self._scannum)
+        else:
+            if not isinstance(self._parent._processed_parameters, dict):
+                self._parent._get_processed_parameters(paramsfile=paramsfile)
+        self._processed_parameters = self._parent._processed_parameters
+        self.nz0 = self._processed_parameters['nz0']
+        self.nv0 = self._processed_parameters['nv0']
+        self.nw0 = self._processed_parameters['nw0']
+        self._ndatapoints = np.array([self.nz0, self.nv0, self.nw0]).prod()
+
+    def _make_grids(self):
+        # z grid
+        delz = 2.0*np.pi / self.nz0
+        self.zgrid = np.linspace(-np.pi, np.pi-delz, self.nz0)
+        # v_parallel grid
+        maxvpar = self._processed_parameters['lv']
+        self.vpargrid = np.linspace(-maxvpar, maxvpar, self.nv0)
+        # mu grid
+        roots, weights = np.polynomial.laguerre.laggauss(self.nw0)
+        weights *= np.exp(roots)
+        scale = self._processed_parameters['lw'] / np.sum(weights)
+        self.mugrid = roots*scale
+        self.muweights = weights*scale
+        
     def _set_binary_configuration(self):
         self.binconfig = {}
-        if self.params['ENDIANNESS']=='BIG':
+        if self._processed_parameters['ENDIANNESS']=='BIG':
             self.binconfig['nprt']=(np.dtype(np.float64)).newbyteorder()
             self.binconfig['format'] = '>idi'
         else:
@@ -48,9 +109,9 @@ class Vspace(object):
         # 4B int
         self.binconfig['intsize'] = 4
         # num. elements in data array [nz,nv,nw,nspec,5]
-        self.binconfig['elements'] = self.vdims.prod() * self.nspecies * 5
+        self.binconfig['elements'] = self._ndatapoints * len(self.species) * 5
         # 8B double precision
-        realsize = 4 + 4 * (self.params['PRECISION']=='DOUBLE')
+        realsize = 4 + 4 * (self._processed_parameters['PRECISION']=='DOUBLE')
         # bytes for double precision data (no pad bytes)
         entrysize = self.binconfig['elements'] * realsize
         # bytes from end of time value to beginning of next time value
@@ -71,55 +132,34 @@ class Vspace(object):
                 self.time = np.append(self.time, time_value)
                 f.seek(self.binconfig['leapfld'], 1)
 
-    def _make_grids(self):
-        # z grid
-        delz = 2.0*np.pi / self.params['nz0']
-        self.zgrid = np.linspace(-np.pi, np.pi-delz, self.params['nz0'])
-        # v_parallel grid
-        maxvpar = self.params['lv']
-        self.vpargrid = np.linspace(-maxvpar,maxvpar,self.params['nv0'])
-        # mu grid
-        roots, weights = np.polynomial.laguerre.laggauss(self.params['nw0'])
-        weights *= np.exp(roots)
-        scale = self.params['lw'] / np.sum(weights)
-        self.mugrid = roots*scale
-        self.muweights = weights*scale
-        
-    def _read_paramsfile(self):
-        if self.run:
-            paramsfile = self.parent.path / 'parameters_{:04d}'.format(self.run)
-            self.params = self.parent._read_parameters(paramsfile)
+    def _adjust_tind(self, tind):
+        # load data based on tind and _ivar
+        if isinstance(tind, (tuple,list,np.ndarray)):
+            tind = np.asarray(tind, dtype=np.int)
         else:
-            self.params = self.parent.params
-        self.vdims = np.array([self.params['nz0'],
-                               self.params['nv0'],
-                               self.params['nw0']])
-        self.nspecies = self.params['n_spec']
-        self.species = self.params['species']
-        self.dtmax = self.params.get('dt_max', 1e-9)
-        self.nprocs = self.params.get('n_procs_sim', 0)
-        self.wcperstep = self.params.get('step_time', 0.0)
-        self.wcperunittimepercpu = self.wcperstep / self.dtmax / self.nprocs
-
-    def get_data(self, tind=None):
+            tind = np.asarray([tind], dtype=np.int)
+        tind[tind<0] += self.time.size
+        return tind
+        
+    def _get_data(self, tind=None):
         if tind is not None:
             self.tind = tind
         if isinstance(self.tind, (tuple,list,np.ndarray)):
             self.tind = np.asarray(self.tind, dtype=np.int)
         else:
             self.tind = np.asarray([self.tind], dtype=np.int)
-        self._read_time_array()
+#        self._read_time_array()
         self.tind[self.tind<0] += self.time.size
         self.timeslices = self.time[self.tind]
         self.vspdata = {}
         for spname in self.species:
-            self.vspdata[spname] = np.empty([self.vdims[0], self.vdims[1], 
-                                             self.vdims[2], self.tind.size],
+            self.vspdata[spname] = np.empty([self.nz0, self.nv0, 
+                                             self.nw0, self.tind.size],
                                             dtype=self.binconfig['nprt'])
         with self.path.open('rb') as f:
             for i,it in enumerate(self.tind):
-                rawdata_shape = (self.vdims[0], self.vdims[1], self.vdims[2], 
-                                 self.nspecies, 5)
+                rawdata_shape = (self.nz0, self.nv0, self.nw0, 
+                                 len(self.species), 5)
                 rawdata = np.empty(rawdata_shape, 
                                    dtype=self.binconfig['nprt'])
                 offset = it * self.binconfig['full_time_segment'] + \
@@ -131,36 +171,35 @@ class Vspace(object):
                 for isp,spname in enumerate(self.species):
                     self.vspdata[spname][:,:,:,i] = rawdata[:,:,:,isp,4]
     
-    def _set_plot_title(self):
-        title = self.shortpath
-#        if self.run:
-#            title += ' run {}'.format(self.run)
+    def plot_vspace(self, tind=None, scannum=None):
+        self(tind=tind, scannum=scannum)
         if self.tind.size==1:
-            title += ' t={:.0f}'.format(self.timeslices[0])
+            title = 't={:.0f}'.format(self.time[self.tind[0]])
         else:
-            title += ' t={:.0f}-{:.0f}'.format(self.timeslices[0],
-                                               self.timeslices[-1])
-        self.plot_title = title
-        
-    def plot_vspace(self):
+            title+= 't={:.0f}-{:.0f}'.format(self.time[self.tind[0]],
+                                               self.time[self.tind[-1]])
+        title += ' {}'.format(self._parent.label)
+        if self._scannum:
+            title += '/{:04d}'.format(self._scannum)
+        self._plot_title = title
         # make uniformly-spaced grid in log10(mu) space
         self.mugrid_log10 = np.log10(self.mugrid)
         mugrid_new = np.linspace(self.mugrid_log10[0], 
                                  self.mugrid_log10[-1], 
                                  self.mugrid_log10.size)
         fig,ax = plt.subplots(nrows=2,
-                              ncols=self.nspecies+1,
+                              ncols=len(self.species)+1,
                               gridspec_kw={'top':0.9,
                                            'left':0.07,
                                            'right':0.93,
                                            'hspace':0.4,
                                            'wspace':0.35},
                               figsize=[9.5,5.5])
-        for isp in range(self.nspecies):
+        for isp, species in enumerate(self.species):
             # sqrt(<f^2>) data for species
-            vdata = np.mean(self.vspdata[self.species[isp]], axis=-1)
+            vdata = np.mean(self.vspdata[species], axis=-1)
             # value at midplane
-            izmid = self.params['nz0']//2
+            izmid = self._processed_parameters['nz0']//2
             vdata_zmid = np.squeeze(vdata[izmid,:,:])
             # spline data onto log10(mu) grid
             vdata_spl = RectBivariateSpline(self.vpargrid,
@@ -175,24 +214,24 @@ class Vspace(object):
                        extent=[self.vpargrid[0], self.vpargrid[-1],
                                self.mugrid_log10[0], self.mugrid_log10[-1]],
                        origin='lower',
-                       cmap=mpl.cm.gnuplot,
+                       cmap=plt.get_cmap('gnuplot2'),
                        interpolation='bilinear')
             plt.xlabel('v_par/v_th')
             plt.ylabel('log10(mu/mu_th)')
-            plt.title('sqrt(<f^2>) ' + self.species[isp])
+            plt.title('sqrt(<f^2>) ' + species)
             plt.colorbar()
             # integrated spectra
-            plt.sca(ax[0,self.nspecies])
+            plt.sca(ax[0,len(self.species)])
             plt.plot(self.vpargrid,
                      vdata_zmid_logmu.sum(axis=1),
-                     label=self.species[isp])
+                     label=species)
             plt.xlabel('v_par/v_th')
             plt.ylabel('sum over mu')
             plt.legend()
-            plt.sca(ax[1,self.nspecies])
+            plt.sca(ax[1,len(self.species)])
             plt.plot(mugrid_new,
                      vdata_zmid_logmu.sum(axis=0),
-                     label=self.species[isp])
+                     label=species)
             plt.xlabel('log10(mu/mu_th)')
             plt.ylabel('sum over v_par')
             plt.legend()
@@ -209,11 +248,11 @@ class Vspace(object):
                        extent=[f_vpar[0], f_vpar[-1],
                                f_logmu[0], f_logmu[-1]],
                        origin='lower',
-                       cmap=mpl.cm.gnuplot,
+                       cmap=plt.get_cmap('gnuplot2'),
                        interpolation='bilinear')
             plt.xlabel('f(v_par/v_th)')
             plt.ylabel('f(log10(mu/mu_th))')
-            plt.title('FFT(sqrt(<f^2>)) ' + self.species[isp])
+            plt.title('FFT(sqrt(<f^2>)) ' + species)
             plt.colorbar()
-        fig.suptitle(self.plot_title)
+        fig.suptitle(self._plot_title)
         

@@ -13,56 +13,133 @@ import struct
 import numpy as np
 from scipy import signal
 import matplotlib.pyplot as plt
-import matplotlib as mpl
 
 from . import utils
 
-field_names = ['phi', 'A_para', 'B_para']
+field_names = ['phi', 'apar', 'bpar']
 mom_names = ['dens', 'T_para', 'T_perp', 'Q_para', 'Q_perp', 'u_para']
 dbmin = -30
 
 class _DataABC(object):
 
-    def __init__(self, tind=-1, ivar=0):
-        # subclasses must define these attributes
-        # before calling super().__init__()
-        if not (hasattr(self, 'species') and hasattr(self, 'run') and \
-                hasattr(self, 'nvars') and hasattr(self, 'parent') and \
-                hasattr(self, 'path') and hasattr(self, 'varnames')):
-            raise AttributeError
-        self.tind = tind
-        self.ivar = ivar
-        self.varname = self.varnames[self.ivar]
-        self.shortpath = '/'.join(self.path.parts[-2:])
-        self.plotlabel = self.parent.plotlabel
-        self.filelabel = self.parent.filelabel
-        self._read_paramsfile()
-        self._make_grids()
+    def __init__(self, ivar=None, parent=None):
+
+        if not (hasattr(self, '_nvars') and \
+                hasattr(self, 'varname') and \
+                hasattr(self, 'path')):
+            raise AttributeError('subclass must implement _nvars, varname, and path')
+        if parent is None:
+            raise ValueError('valid parent is required')
+
+        self._parent = parent
+        self._ivar = ivar
+        self._processed_parameters = None
+        self._ndatapoints = None
+        self._binary_configuration = None
+        self._scannum = None
+        self.tind = None
+        self.time = None
+
+    def __call__(self, scannum=None, ivar=None, tind=None):
+        """
+        Set tind, scannum, and _ivar
+        Call _load_scan() or _get_data() if needed
+        """
+        do_reload_data = False
+        # check for new data/scan load
+        if (scannum is not None and scannum != self._scannum) or \
+            (not hasattr(self._parent, '_scannum') and not self._scannum):
+            if scannum is not None:
+                self._scannum = scannum
+            else:
+                self._scannum = -1
+            self._load_scan()
+            if tind is None:
+                tind = -1
+            do_reload_data = True
+        if ivar is None and self._ivar is None:
+            ivar = 0
+        if ivar is not None and ivar != self._ivar:
+            # load new moment data
+            # (n/a for fields)
+            self._ivar = ivar
+            do_reload_data = True
+        if tind is None and self.tind is None:
+            tind = -1
+        if tind is not None:
+            tind = self._adjust_tind(tind)
+            if tind != self.tind:
+                self.tind = tind
+                do_reload_data = True
+        # load data/scan, if needed
+        if do_reload_data:
+            self._get_data()
+        return self
+            
+    def _adjust_tind(self, tind):
+        # load data based on tind and _ivar
+        if isinstance(tind, (tuple,list,np.ndarray)):
+            tind = np.asarray(tind, dtype=np.int)
+        else:
+            tind = np.asarray([tind], dtype=np.int)
+        tind[tind<0] += self.time.size
+        return tind
+        
+            
+    def _load_scan(self):
+        # load scan item configuration based on scannum
+        self._get_parent_parameters()
         self._set_binary_configuration(
-            nfields=self.nvars,
-            elements=self.dims.prod(),
-            isdouble=self.params['PRECISION']=='DOUBLE',
-            isbig=self.params['ENDIANNESS']=='BIG')
-        self.get_data()
-        self._calc_refs()
+            nfields=self._nvars,
+            elements=self._ndatapoints,
+            isdouble=self._processed_parameters['PRECISION']=='DOUBLE',
+            isbig=self._processed_parameters['ENDIANNESS']=='BIG')
+        self._set_subclass_path()
+        self._read_time_array()
         
-    def convert(self, value):
-        return self.parent.convert(value)
+    def _set_subclass_binary_configuration(self):
+        # implement in subclass
+        pass
         
-    def _calc_refs(self):
-        self.ref = self.parent.ref
-        self.ref['kymin'] = self.convert(self.params['kymin'])
-        self.ref['q0'] = self.convert(self.params['q0'])
-        self.ref['shat'] =self.convert( self.params['shat'])
-        self.ref['minor_r'] = self.convert(self.params['minor_r'])
-        self.ref['lx'] = self.params['lx']
-        self.ref['nx'] = self.params['nx0']
-        self.ref['xres'] = self.params['lx'] / self.params['nx0']
-        self.ref['Delta-r'] = 1/(self.ref['kymin']*self.ref['shat'])
-        self.ref['m_approx'] = self.ref['kymin']/self.ref['rhostar']
-        self.ref['n_approx'] = self.ref['m_approx']/self.ref['q0']
-        self.ref['ky_n1'] = self.ref['q0']*self.ref['rhostar']
-        self.ref['nexc'] = self.params['lx']*self.params['kymin']*self.params['shat']
+    def _set_subclass_path(self):
+        # implement in subclass
+        pass
+        
+    def _get_parent_parameters(self):
+        if self._scannum and self._scannum >=1:
+            paramsfile = self._parent.path / 'parameters_{:04d}'.format(self._scannum)
+        else:
+            paramsfile = self._parent.path / 'parameters.dat'
+        if hasattr(self._parent, '_scannum'):
+            if not isinstance(self._parent._processed_parameters, dict) or \
+                self._scannum != self._parent._processed_parameters.get('_scannum',0):
+                # current scannum does not match parent's archived scannum,
+                # so update processed parameters
+                self._parent._get_processed_parameters(paramsfile=paramsfile, 
+                                                       scannum=self._scannum)
+        else:
+            if not self._parent._processed_parameters or \
+                not isinstance(self._parent._processed_parameters, dict):
+                self._parent._get_processed_parameters(paramsfile=paramsfile)
+        self._processed_parameters = self._parent._processed_parameters
+        # get simulation domain, make grids
+        self.nx0 = self._processed_parameters['nx0']
+        self.nky0 = self._processed_parameters['nky0']
+        self.nz0 = self._processed_parameters['nz0']
+        self.kymin = self._processed_parameters['kymin']
+        self._ndatapoints = np.array([self.nx0, self.nky0, self.nz0]).prod()
+        self.lx = self._processed_parameters['lx']
+        self.ly = self._processed_parameters['ly']
+        if self.lx==0 or self.ly==0:
+            return
+        self.xres = self.lx / self.nx0
+        self.xgrid = np.linspace(-self.lx/2, self.lx/2, self.nx0)
+        delkx = 2*np.pi / self.lx
+        kxmax = self.nx0/2 * delkx
+        self.kxgrid = np.linspace(-(kxmax-delkx), kxmax, self.nx0)
+        self.kygrid = np.linspace(self.kymin, self.kymin*self.nky0, self.nky0)
+        delz = 2*np.pi / self.nz0
+        self.zgrid = np.linspace(-np.pi, np.pi-delz, self.nz0)
 
     def _set_binary_configuration(self, nfields=None, elements=None, 
                                   isdouble=None, isbig=None):
@@ -81,107 +158,43 @@ class _DataABC(object):
             fmt = '=idi'
         te = struct.Struct(fmt)
         tesize = te.size
-        self.binary_configuration = (intsize, entrysize, leapfld, 
+        self._binary_configuration = (intsize, entrysize, leapfld, 
                                      nprt, npct, te, tesize)
 
-    def _read_paramsfile(self):
-        if self.run:
-            paramsfile = self.parent.path / 'parameters_{:04d}'.format(self.run)
-            self.params = self.parent._read_parameters(paramsfile)
-        else:
-            self.params = self.parent.params
-        self.dims = np.array([self.params['nx0'],
-                              self.params['nky0'],
-                              self.params['nz0']])
-        self.dtmax = self.params.get('dt_max', 1e-9)
-        self.nprocs = self.params.get('n_procs_sim', 0)
-        self.wcperstep = self.params.get('step_time', 0.0)
-        self.wcperunittimepercpu = self.wcperstep / self.dtmax / self.nprocs
-        
-    def _make_grids(self):
-        delkx = 2*np.pi / self.params['lx']
-        kxmax = self.dims[0]/2 * delkx
-        self.kxgrid = np.linspace(-(kxmax-delkx), kxmax, self.dims[0])
-        self.kygrid = np.linspace(self.params['kymin'],
-                                  self.params['kymin']*self.dims[1],
-                                  self.dims[1])
-        delz = 2.0*np.pi / self.dims[2]
-        self.zgrid = np.linspace(-np.pi, np.pi-delz, self.dims[2])
-
-    def _read_time_array(self):
-        intsize, entrysize, leapfld, nprt, npct, te, tesize = self.binary_configuration
-        self.time = np.empty(0)
-        with self.path.open('rb') as f:
-            filesize = os.path.getsize(self.path.as_posix())
-            for i in range(filesize // (leapfld+tesize)):
-                value = float(te.unpack(f.read(tesize))[1])
-                self.time = np.append(self.time, value)
-                f.seek(leapfld,1)
-
-    def _set_plot_title(self):
-        title = self.varname+' '+self.plotlabel
-        if self.species:
-            title += ' {}'.format(self.species[0:4])
-        if self.run:
-            title += ' run {}'.format(self.run)
-        if self.tind.size==1:
-            timestr = ' t={:.0f}'.format(self.timeslices[0])
-        else:
-            timestr = ' t={:.0f}-{:.0f}'.format(self.timeslices[0],
-                                                self.timeslices[-1])
-        title += timestr
-        self.plot_title = title
-
-    def get_data(self, tind=None, ivar=None):
-        if tind is not None:
-            self.tind = tind
-        if ivar is not None:
-            self.ivar = ivar
-        if isinstance(self.tind, (tuple,list,np.ndarray)):
-            self.tind = np.asarray(self.tind, dtype=np.int)
-        else:
-            self.tind = np.asarray([self.tind], dtype=np.int)
-        self.varname = self.varnames[self.ivar]
-        self._read_time_array()
-        self.tind[self.tind<0] += self.time.size
-        self.timeslices = self.time[self.tind]
-        self._set_plot_title()
-        intsize, entrysize, leapfld, nprt, npct, te, tesize = self.binary_configuration
-        data = np.empty((self.dims[0],
-                         self.dims[1],
-                         self.dims[2],
+    def _get_data(self):
+        intsize, entrysize, leapfld, nprt, npct, te, tesize = self._binary_configuration
+        data = np.empty((self.nx0,
+                         self.nky0,
+                         self.nz0,
                          self.tind.size), dtype=npct)
         offset = self.tind * (tesize+leapfld) + \
-            self.ivar * (entrysize+2*intsize) + \
+            self._ivar * (entrysize+2*intsize) + \
             intsize + tesize
         with self.path.open('rb') as f:
             for i,off in enumerate(offset):
                 f.seek(off)
-                flatdata = np.fromfile(f, count=self.dims.prod(), dtype=npct)
-                data[:,:,:,i] = flatdata.reshape(tuple(self.dims[::-1])).transpose()
-        if self.dims[1]>1:
-            nzmid, = np.nonzero(self.zgrid==0)
-#            dataz0 = np.squeeze(data[:,:,nzmid,-1])
-            xyz = np.real(np.fft.ifft2(np.squeeze(data[:,:,:,-1]), 
-                                      axes=[0,1]))
-            self.xyimage = np.squeeze(xyz[...,nzmid])
-            self.xzimage = np.squeeze(np.sum(xyz, axis=-1))
-#            self.xyimage = np.real(np.fft.ifft2(dataz0))
+                flatdata = np.fromfile(f, count=self._ndatapoints, dtype=npct)
+                data[:,:,:,i] = flatdata.reshape((self.nz0,self.nky0,self.nx0)).transpose()
+        data_kxkyz_f = data[:,:,:,-1]
+        if self.nky0>1:
+            data_xyz = np.square(np.abs(np.fft.ifft2(data_kxkyz_f, axes=[0,1])))
+            self._xyimage = data_xyz[:,:,self.nz0//2]
+            self._xzimage = np.sum(data_xyz, axis=1)
         else:
-            self.xyimage = None
-            self.xzimage = np.real(np.fft.ifft(np.squeeze(data[:,0,:,-1]),
-                                               axis=0))
+            data_kxz_f = data_kxkyz_f[:,0,:]
+            self._xyimage = None
+            self._xzimage = np.square(2*np.pi*np.abs(np.fft.ifft(data_kxz_f, axis=0)))
         # roll in kx dimension to order from kxmin to kxmax
-        data = np.roll(data, self.dims[0]//2-1, axis=0)
-        # output data
-        self.data = data
-        # rehsape to ballooning representation
-        self.ballooning = np.reshape(np.squeeze(self.data[0:-1,:,:,:]), -1, order='C')
-        nconnections = self.dims[0]-1
-        paragridsize = nconnections*self.dims[2]
+        self.data = np.roll(data, self.nx0//2-1, axis=0)
+        self.kxspectrum = np.mean(np.square(np.abs(self.data)), axis=(1,2,3))
+        self.kxspectrum[self.nx0//2-1] *= 2
+        # rehsape to ballooning representation (final time slice only)
+        self.ballooning = np.reshape(np.squeeze(self.data[0:-1,:,:,-1]), -1, order='C')
+        nconnections = self.nx0-1
+        paragridsize = nconnections*self.nz0
         self.ballgrid = np.empty(paragridsize)
         for i in np.arange(nconnections):
-            self.ballgrid[i*self.dims[2]:(i+1)*self.dims[2]] = \
+            self.ballgrid[i*self.nz0:(i+1)*self.nz0] = \
                 2*(i-nconnections//2) + self.zgrid/np.pi
         # calculate mode parity
         # even parity: sumsig >> diffsig > 0 and parity ~ +1
@@ -202,17 +215,39 @@ class _DataABC(object):
         filtsig = signal.correlate(realmode, wavelet, method=method)
         self.gridosc = np.sum(np.abs(filtsig)**2)
 
-    def plot_mode(self, tind=None, ivar=None, filename='', save=False):
-        if tind is not None or ivar is not None:
-            self.get_data(tind=tind, ivar=ivar)
-        plt.figure(figsize=(4.6,4))
+    def _read_time_array(self):
+        intsize, entrysize, leapfld, nprt, npct, te, tesize = self._binary_configuration
+        self.time = np.empty(0)
+        with self.path.open('rb') as f:
+            filesize = os.path.getsize(self.path.as_posix())
+            for i in range(filesize // (leapfld+tesize)):
+                value = float(te.unpack(f.read(tesize))[1])
+                self.time = np.append(self.time, value)
+                f.seek(leapfld,1)
+
+    def plot_mode(self, scannum=None, ivar=None, tind=None):
+        if self.tind.size==1:
+            plot_title = 't={:.0f}'.format(self.time[self.tind[0]])
+        else:
+            plot_title+= 't={:.0f}-{:.0f}'.format(self.time[self.tind[0]],
+                                               self.time[self.tind[-1]])
+        plot_title += ' {}'.format(self._parent.label)
+        if self._scannum:
+            plot_title += '/{:04d}'.format(self._scannum)
+        if self.nky0==1:
+            # linear sim with nky0=1
+            fig, ax = plt.subplots(nrows=1, ncols=3, figsize=[11,3.25])
+        else:
+            # nonlinear sim with nky0>1
+            fig, ax = plt.subplots(nrows=2, ncols=3, figsize=[11,5.5])
+        # plot ballooning mode structure in axis #1
+        plt.sca(ax.flat[0])
         plt.plot(self.ballgrid, np.abs(self.ballooning), label='Abs()')
         plt.plot(self.ballgrid, np.real(self.ballooning), label='Re()')
         plt.legend()
-        plt.title(self.plot_title)
+        plt.title(plot_title)
         plt.xlabel('Ballooning angle (rad/pi)')
         plt.ylabel(self.varname)
-        plt.tight_layout()
         xmax = self.ballgrid.max()
         itwopi = 0
         ylim = plt.gca().get_ylim()
@@ -221,140 +256,92 @@ class _DataABC(object):
             if itwopi != 0:
                 plt.plot(-np.ones(2)*itwopi, ylim, color='tab:gray', linestyle='--')
             itwopi += 2
-        filename_auto = self.filelabel+'_'+self.varname+'_mode'
-        if self.run:
-            filename_auto += '_r{:02d}'.format(self.run)
-        if save:
-            if not filename:
-                filename = filename_auto
-            plt.gcf().savefig(filename+'.pdf')
-        
-    def plot_spectra(self, tind=None, ivar=None, filename='', save=False):
-        self.get_data(tind=tind, ivar=ivar)
-        # average data over time axis
-        data = np.mean(np.abs(self.data),axis=3)
-        nky = self.dims[1]
-        if nky>1:
-            fig, ax = plt.subplots(nrows=2, ncols=3, figsize=[11,5.5])
-        else:
-            fig, ax = plt.subplots(nrows=1, ncols=2, figsize=[8,4])
-        # kx spectrum
-        plt.sca(ax.flat[0])
-        plt.plot(self.kxgrid[:-2], utils.log1010(np.mean(data[:-2,:,:], axis=(1,2))))
-#        plt.ylim(dbmin,None)
-        plt.xlabel('kx')
-        plt.ylabel('10log10(sum ky,z |var|^2)')
-        plt.title(self.plot_title)
-        # x, z image
+        # plot kx spectrum
         plt.sca(ax.flat[1])
-        plt.imshow(self.xzimage.transpose(),
+        if self.kxgrid.size >= 64:
+            style='-'
+        else:
+            style='d-'
+        plt.plot(self.kxgrid[:-1], utils.log1010(self.kxspectrum[:-1]), style)
+        plt.xlabel('kx')
+        plt.ylabel('PSD('+self.varname+') [dB]')
+        plt.title(plot_title)
+        # x,z image
+        plt.sca(ax.flat[2])
+        plt.imshow(self._xzimage.transpose(),
                    aspect='auto',
-                   extent=[-self.params['lx']/2, self.params['lx']/2,
+                   extent=[-self.lx/2, self.lx/2,
                            self.zgrid[0], self.zgrid[-1]],
                    origin='lower',
-                   cmap=mpl.cm.seismic,
-                   vmin=-np.amax(np.abs(self.xzimage)),
-                   vmax=np.amax(np.abs(self.xzimage)),
+                   cmap=plt.get_cmap('gnuplot2'),
                    interpolation='bilinear')
-#        plt.imshow(utils.log1010(np.mean(data[:-2,:,:],axis=1).transpose()),
-#                   aspect='auto',
-#                   extent=[self.kxgrid[0], self.kxgrid[-2],
-#                           self.zgrid[0], self.zgrid[-1]],
-#                   origin='lower',
-#                   cmap=mpl.cm.gnuplot,
-#                   interpolation='bilinear')
-#        plt.clim(dbmin,0)
         plt.xlabel('x')
         plt.ylabel('z')
-        plt.title(self.plot_title)
+        plt.title(plot_title)
         plt.colorbar()
-        if nky>1:
-            # ky spectrum
-            plt.sca(ax.flat[3])
-            plt.plot(self.kygrid, utils.log1010(np.mean(data, axis=(0,2))))
-            plt.xlabel('ky')
-            plt.ylim(dbmin,None)
-            plt.title(self.plot_title)
-            # kx,ky spectrum
-            plt.sca(ax.flat[4])
-            plt.imshow(utils.log1010(np.mean(data, axis=2)).transpose(),
-                       aspect='auto',
-                       extent=[self.kxgrid[0], self.kxgrid[-1],
-                               self.kygrid[0], self.kygrid[-1]],
-                       origin='lower',
-                       cmap=mpl.cm.gnuplot,
-                       interpolation='bilinear')
-            plt.clim(dbmin,0)
-            plt.xlabel('kx')
-            plt.ylabel('ky')
-            plt.title(self.plot_title)
-            plt.colorbar()
-            # x,y image
-            lx = self.params['lx']
-            ly = self.params['ly']
-            plt.sca(ax.flat[2])
-            plt.imshow(self.xyimage.transpose(),
-                       origin='lower',
-                       cmap=mpl.cm.seismic,
-                       extent=[-lx/2,lx/2,-ly/2,ly/2],
-                       interpolation='bilinear',
-                       aspect='equal')
-            plt.colorbar()
-            plt.xlabel('x')
-            plt.ylabel('y')
-            plt.title(self.plot_title + ' z=0')
-            # ky,z spectrum
-            plt.sca(ax.flat[5])
-            plt.imshow(utils.log1010(np.mean(data, axis=0)).transpose(),
-                       aspect='auto',
-                       extent=[self.kygrid[0], self.kygrid[-1],
-                               self.zgrid[0], self.zgrid[-1]],
-                       origin='lower',
-                       cmap=mpl.cm.gnuplot,
-                       interpolation='bilinear')
-            plt.clim(dbmin,0)
-            plt.xlabel('ky')
-            plt.ylabel('z')
-            plt.title(self.plot_title)
-            plt.colorbar()
         plt.tight_layout()
-        filename_auto = self.filelabel+'_'+self.varname+'_spectra'
-        if self.run:
-            filename_auto += '_r{:02d}'.format(self.run)
-        if save:
-            if not filename:
-                filename = filename_auto
-            plt.gcf().savefig(filename+'.pdf')
-
-
-class Moment(_DataABC):
-
-    def __init__(self, run=None, parent=None, species='ions', **kwargs):
-        self.run = run
-        self.varnames = mom_names
-        self.parent = parent
-        self.nvars = self.parent.nmoments
-        if species.lower().startswith('ion'):
-            self.species = 'ions'
-        elif species.lower().startswith('ele'):
-            self.species = 'electrons'
-        if self.run:
-            self.path = self.parent.path / 'mom_{}_{:04d}'.format(self.species, self.run)
-        else:
-            self.path = self.parent.path / 'mom_{}.dat'.format(self.species)
-        super().__init__(**kwargs)
-
+        
 
 class Field(_DataABC):
 
-    def __init__(self, run=None, parent=None, **kwargs):
-        self.run = run
-        self.varnames = field_names
-        self.parent = parent
-        self.nvars = self.parent.nfields
-        self.species = None
-        if self.run:
-            self.path = self.parent.path / 'field_{:04d}'.format(self.run)
+    def __init__(self, field='', parent=None):
+        self._nvars = len(parent.fields)
+        self.varname = field
+        self.path = None
+
+        self.field = field
+
+        super().__init__(ivar=field_names.index(field), 
+                         parent=parent)
+        
+#    def __call__(self, scannum=None, tind=None):
+#        return super().__call__(scannum=scannum, tind=tind)
+
+    def _set_subclass_path(self):
+        if self._scannum:
+            self.path = self._parent.path / 'field_{:04d}'.format(self._scannum)
         else:
-            self.path = self.parent.path / 'field.dat'
-        super().__init__(**kwargs)
+            self.path = self._parent.path / 'field.dat'
+            
+    def plot_mode(self, scannum=None, tind=None):
+        self(scannum=scannum, ivar=None, tind=tind)
+        super().plot_mode(scannum=scannum, ivar=None, tind=tind)
+        
+
+class Moment(_DataABC):
+
+    def __init__(self, species='', parent=None):
+        self._nvars = 6
+        self.varname = None
+        self.path = None
+
+        self._imoment = None
+        self.species = species
+        self.moment = None
+
+        self._set_moment()
+        super().__init__(ivar=self._imoment, parent=parent)
+        
+#    def __call__(self, scannum=None, moment=None, tind=None):
+#        if moment is not None and moment != self._imoment:
+#            self._set_moment(moment=moment)
+#        return super().__call__(scannum=scannum, ivar=moment, tind=tind)
+
+    def _set_subclass_path(self):
+        if self._scannum:
+            self.path = self._parent.path / 'mom_{}_{:04d}'.format(self.species, self._scannum)
+        else:
+            self.path = self._parent.path / 'mom_{}.dat'.format(self.species)
+
+    def _set_moment(self, moment=0):
+        # set _imoment, moment, and varname
+        self._imoment = moment
+        self.moment = mom_names[self._imoment]
+        self.varname = self.species[0:3] + ' ' + mom_names[self._imoment]
+        
+    def plot_mode(self, scannum=None, moment=None, tind=None):
+        if moment is not None and moment != self._imoment:
+            self._set_moment(moment=moment)
+        self(scannum=scannum, ivar=moment, tind=tind)
+        super().plot_mode(scannum=scannum, ivar=moment, tind=tind)
+        
