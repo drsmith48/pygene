@@ -6,6 +6,8 @@ Python tools to analyze GENE output.  http://genecode.org/
 
 Runs on Python 2/3.  Built with ``numpy`` and ``matplotlib``.
 
+asdfasdfadsfasdf
+
 Example usage-------------
 
 ``scanscript`` calculation in ``problem-003`` directory::
