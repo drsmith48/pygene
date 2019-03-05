@@ -21,7 +21,7 @@ fi
 allownonascii=$(git config --bool hooks.allownonascii)
 
 # Redirect output to stderr.
-exec 1>&2
+## exec 1>&2
 
 # Cross platform projects tend to avoid non-ASCII filenames; prevent
 # them from being added to the repository. We exploit the fact that the
