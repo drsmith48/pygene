@@ -52,6 +52,7 @@ exec git diff-index --check --cached $against --
 
 
 # now run pygene tests
+echo "in hook"
 pytest --disable-warnings
 
 # exit with exit code of last command `$?`
