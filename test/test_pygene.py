@@ -10,7 +10,7 @@ import pathlib
 import matplotlib.pyplot as plt
 from pygene import GeneLinearScan, GeneNonlinear
 
-plt.close('all') ###
+plt.close('all') ######
 
 top_dir = pathlib.Path('/p/gene/drsmith/genecode')
 
