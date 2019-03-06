@@ -1,29 +1,33 @@
 .. highlight:: python
 
-PYGENE======
+PYGENE
+=============
 
-Python tools to analyze GENE output.  http://genecode.org/
+Python tools to analyze GENE output (http://genecode.org/)
 
-Runs on Python 2/3.  Built with ``numpy`` and ``matplotlib``.
+Runs on Python 2/3.  Prereqs: numpy, scipy, matplotlib
 
-Example usage-------------
+Usage
+-------------
 
-``scanscript`` calculation in ``problem-003`` directory::
+Linear scan::
 
-  import pygene
-  # load a `scanscript` output directory
-  scan = pygene.GeneLinearScan(pygene.genehome/'problem-003'/'scanfiles0016')
-  # plot |n|^2 vs. time for all runs
+  from pygene import GeneLinearScan
+  scan = GeneLinearScan('problem_003/scanfiles0016')
   scan.plot_nsq()
-  # plot omega (re/im) vs. scan parameter or run #
   scan.plot_omega()
-  # plot phi spectra for run #3
-  scan.get_field(run=3)
-  scan.field.plot_spectra()
-  # plot ion density parallel mode structure for run #5
-  scan.get_moment(run=5)
-  scan.moment.plot_mode()
-  # plot velocity-space spectra for run #7
-  scan.get_vsp(run=7)
-  scan.plot_vspace()
+  scan.phi.plot_mode()
+  scan.apar.plot_mode(scan=2)
+  scan.ions.plot_mode()
+  scan.electrons.plot_mode(scannum=4, moment=3)
+  scan.vsp.plot_vspace(species='ions', scannum=3)
 
+Nonlinear::
+
+  from pygene import GeneNonlinear
+  nl = GeneNonlinear('problem_004')
+  nl.plot_nrg()
+  nl.plot_energy()
+  nl.apar.plot_mode()
+  nl.ions.plot_mode()
+  nl.vsp.plot_vspace(species='electrons')

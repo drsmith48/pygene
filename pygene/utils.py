@@ -12,7 +12,8 @@ import re
 
 import numpy as np
 
-genehome = Path(os.getenv('GENEHOME'))
+# 'GENEWORK' directory; if undefined, default to user home directory
+genework = Path(os.getenv('GENEWORK', default = os.getenv('HOME')))
 
 re_nrgline = re.compile(r'^'+''.join([r'\s+([0-9E.+-]+)' for i in range(8)]))
 re_energy = re.compile(r'^'+''.join([r'\s+([0-9ENan.+-]+)' for i in range(14)]))
@@ -35,7 +36,7 @@ def log1010(data):
 def validate_path(path):
     pathout = Path(path)
     if not pathout.is_absolute():
-        pathout = genehome / path
+        pathout = genework / path
     if not pathout.exists():
         raise ValueError('Invalid path: {}'.format(path))
     return pathout

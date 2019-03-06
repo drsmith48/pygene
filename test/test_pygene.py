@@ -5,7 +5,13 @@ Created on Tue Jan 15 09:47:45 2019
 
 @author: drsmith
 """
+from __future__ import division
+from __future__ import unicode_literals
+from __future__ import print_function
+from __future__ import absolute_import
 
+from future import standard_library
+standard_library.install_aliases()
 import pathlib
 import matplotlib.pyplot as plt
 import pytest
@@ -13,11 +19,11 @@ from pygene import GeneLinearScan, GeneNonlinear
 
 plt.close('all')
 
-top_dir = pathlib.Path('/p/gene/drsmith/genecode')
+base = pathlib.Path('/p/gene/drsmith/genecode')
 
 @pytest.fixture
 def lin():
-    return GeneLinearScan(top_dir/'eq21-pn65-n1'/'scanfiles0000')
+    return GeneLinearScan(base/'eq21-pn65-n1'/'scanfiles0000')
 
 def test_linear_scan(lin):
     lin.plot_nsq()
@@ -37,7 +43,7 @@ def test_linear_vsp(lin):
 
 @pytest.fixture
 def nl():
-    return GeneNonlinear(top_dir/'eq21-pn60-nonlinear'/'run-19215555')
+    return GeneNonlinear(base/'eq21-pn60-nonlinear'/'run-19215555')
 
 def test_nonlinear_timehistory(nl):
     nl.plot_nrg()

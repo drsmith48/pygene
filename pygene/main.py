@@ -2,6 +2,8 @@ from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
 from __future__ import absolute_import
+from builtins import super
+from builtins import open
 from builtins import int
 from builtins import zip
 from builtins import range
@@ -24,7 +26,7 @@ from . import utils
 root = tk.Tk()
 root.withdraw()
 
-genehome = utils.genehome
+genework = utils.genework
 
 
 class _GeneBaseClass(object):
@@ -32,7 +34,7 @@ class _GeneBaseClass(object):
     def __init__(self, path=None, label=None):
         # set path and label
         if not path:
-            path = filedialog.askdirectory(initialdir=genehome.as_posix())
+            path = filedialog.askdirectory(initialdir=genework.as_posix())
             path = Path(path)
         self.path = utils.validate_path(path)
         self.label = label if label else '/'.join(self.path.parts[-2:])
