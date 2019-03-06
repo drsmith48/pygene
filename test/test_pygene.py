@@ -20,15 +20,15 @@ def test_linear():
     sim.plot_nsq()
     sim.plot_omega()
     sim.phi.plot_mode(scannum=1)
-    sim.electrons.plot_mode(scannum=1, moment=5)
-    sim.vsp.plot_vspace(scannum=1)
+#    sim.electrons.plot_mode(scannum=1, moment=5)
+#    sim.vsp.plot_vspace(scannum=1)
 
 def test_nonlinear():
     path = top_dir/'eq21-pn60-nonlinear'/'run-19215555'
     nl = GeneNonlinear(path=path)
     nl.plot_nrg()
     nl.plot_energy()
-#    nl.phi.plot_mode()
+    nl.phi.plot_mode()
     #nl.electrons.plot_mode(moment=5)
 
     

@@ -41,6 +41,9 @@ class _GeneBaseClass(object):
             self._paramsfile = utils.validate_path(Path(self.path/'parameters'))
         except:
             self._paramsfile = utils.validate_path(Path(self.path/'parameters.dat'))
+        # attribute declarations
+        self.scandims = None
+        self.nscans = None
         # get basic simulation parameters
         self.params = {}
         self.species = []
@@ -84,30 +87,28 @@ class _GeneBaseClass(object):
             if self.params['bpar']:
                 self.fields.append('bpar')
         # check for linear scan or nonlinear nonscan
-        self.isnonlinear = self.params['nonlinear'] is True and \
+        self._isnonlinear = self.params['nonlinear'] is True and \
                            self.params['nky0']>1 and \
                            self.params['scan_dims'] is None
-        self.islinearscan = self.params['nonlinear'] is False and \
+        self._islinearscan = self.params['nonlinear'] is False and \
                             self.params['nky0']==1 and \
-                            self.params['scan_dims'] is not None
-        assert self.isnonlinear != self.islinearscan
+                            self.params['scan_dims']
+        assert self._isnonlinear != self._islinearscan
         # set attributes for fields and species
         for field in self.fields:
             setattr(self, field, Field(field=field, parent=self))
         for species in self.species:
             setattr(self, species, Moment(species=species, parent=self))
         self.vsp = Vspace(parent=self)
-        self._processed_parameters = None
 
-    def _get_processed_parameters(self, paramsfile=None, scannum=None):
+    def _get_processed_parameters(self, paramsfile=None):
         """
-        Get post-processed GENE parameters, e.g. from parameters.dat or 
-        parameters_0003
+        Used by fields/moments to get post-processed GENE parameters 
+        from parameters.dat or parameters_0003
         """
         # only called by Field or Moment attributes
         pfile = utils.validate_path(paramsfile)
-        params = {'scannum':scannum,
-                  'species':[],
+        params = {'species':[],
                   'Bref':1.0,
                   'Tref':1.0,
                   'nref':1.0,
@@ -148,9 +149,12 @@ class _GeneBaseClass(object):
         params['rhostar'] = params['rho'] / params['Lref']
         params['gam_gb'] = params['c_s'] * params['nref'] * params['rhostar']**2
         params['q_gb'] = params['gam_gb'] * 1e3*params['Tref'] * e/k
-        self._processed_parameters = params
+        return params
 
     def _read_nrgdata(self, file):
+        """
+        Read a NRG file
+        """
         nsp = len(self.species)
         data = np.empty((0,8,nsp))
         time = np.empty((0,))
@@ -188,6 +192,17 @@ class _GeneBaseClass(object):
                  'qem':data[:,7,i]}
         return nrgdata
 
+
+class GeneNonlinear(_GeneBaseClass):
+    """
+    Nonelinear simulation (no scan)
+    """
+    
+    def __init__(self, path=None, label=None):
+        super().__init__(path=path, label=label)
+        self.nrg = None
+        self.energy = None
+
     def _read_energy(self, file):
         data = np.empty((0,14))
         with file.open() as f:
@@ -202,21 +217,57 @@ class _GeneBaseClass(object):
                     else:
                         linedata[0,i] = eval(s)
                 data = np.append(data, linedata, axis=0)
-        return {'time':data[:,0],
-                'etot':data[:,1],
-                'ddtetot':data[:,2],
-                'drive':data[:,3],
-                'heatsrc':data[:,4],
-                'colldiss':data[:,5],
-                'hypvdiss':data[:,6],
-                'hypzdiss':data[:,7],
-                'nonlinear':data[:,9],
-                'curvmisc':data[:,11],
-                'convergance':data[:,12],
-                'deltae':data[:,13],
-                'netdrive':np.sum(data[:,3:12],axis=1),
-                'grossdrive':np.sum(data[:,3:5],axis=1)}
+        self.energy = {'time':data[:,0],
+                       'etot':data[:,1],
+                       'ddtetot':data[:,2],
+                       'drive':data[:,3],
+                       'heatsrc':data[:,4],
+                       'colldiss':data[:,5],
+                       'hypvdiss':data[:,6],
+                       'hypzdiss':data[:,7],
+                       'nonlinear':data[:,9],
+                       'curvmisc':data[:,11],
+                       'convergance':data[:,12],
+                       'deltae':data[:,13],
+                       'netdrive':np.sum(data[:,3:12],axis=1),
+                       'grossdrive':np.sum(data[:,3:5],axis=1)}
     
+    def plot_nrg(self):
+        if not self.nrg:
+            self.nrg = self._read_nrgdata(self.path / 'nrg.dat')
+        time = self.nrg['time']
+        t1 = np.searchsorted(time, 1.0)
+        fig, ax = plt.subplots(ncols=len(self.species), nrows=2, figsize=(9,5))
+        ax = ax.reshape((2,1))
+        for i,sp in enumerate(self.species):
+            nrg = self.nrg[sp]
+            for key,value in nrg.items():
+                if key.lower().startswith('q') or key.lower().startswith('gam'):
+                    plt.sca(ax[1,i])
+                else:
+                    plt.sca(ax[0,i])
+                label = '{} ({:.1e})'.format(key, value[-1])
+                plt.plot(time[t1:], value[t1:], label=label)
+            for iax in [0,1]:
+                plt.sca(ax[iax,i])
+                plt.title(sp)
+                plt.legend(loc='upper left')
+                plt.xlabel('time')
+        plt.tight_layout()
+
+    def plot_energy(self):
+        if not self.energy:
+            self._read_energy(self.path / 'energy.dat')
+        time = self.energy['time']
+        plt.figure()
+        for key in ['drive','heatsrc','colldiss','hypvdiss','hypzdiss',
+                   'nonlinear','curvmisc']:
+            label = '{} ({:.1e})'.format(key, self.energy[key][-1])
+            plt.plot(time, self.energy[key], label=label)
+        plt.ylabel('energy term')
+        plt.xlabel('time')
+        plt.legend()
+
 
 class GeneLinearScan(_GeneBaseClass):
     """
@@ -229,14 +280,20 @@ class GeneLinearScan(_GeneBaseClass):
     def __init__(self, path=None, label=None):
         super().__init__(path=path, label=label)
 
-        self.scanlog = None
-        self.scans = None
-        self.omega = None
-        self._scannum = 1
-        # read scanlog at instantiation
-        self._read_scanlog()
+        self.omega = {}
+#        self._scannum = -1
 
-    def _read_scanlog(self):
+        if isinstance(self.params['scan_dims'], str):
+            dim_scans = [eval(s) for s in self.params['scan_dims'].split(' ')]
+            self.scandims = len(dim_scans)
+            self.nscans = np.prod(np.array(dim_scans))
+        elif isinstance(self.params['scan_dims'], int):
+            self.scandimes = 1
+            self.nscans = self.params['scan_dims']
+        else:
+            raise ValueError('scan_dims is invalid: {}'.
+                             format(self.params['scan_dims']))
+
         scanfile = self.path / 'scan.log'
         paramname = ''
         paramvalues = np.empty(0)
@@ -249,15 +306,14 @@ class GeneLinearScan(_GeneBaseClass):
                     rx = utils.re_scanlog.match(line)
                     value = float(rx.group('value'))
                     paramvalues = np.append(paramvalues, value)
-        if paramvalues.size != 0 and paramname != 'no_scan':
+        if paramvalues.size != 0:
             self.scanlog = {'paramname':paramname, 
                             'paramvalues':paramvalues}
         else:
-            self.scanlog = {}
-        self.scans = np.arange(paramvalues.size)+1
+            self.scanlog = None
 
     def _read_omega(self):
-        nscans = self.scans.size
+        nscans = self.nscans
         output = {'ky':np.empty(nscans)*np.NaN,
                   'omi':np.empty(nscans)*np.NaN,
                   'omr':np.empty(nscans)*np.NaN,
@@ -269,7 +325,7 @@ class GeneLinearScan(_GeneBaseClass):
             if not omega_file.exists():
                 print('missing omega file: {}'.format(omega_file.as_posix()))
                 continue
-            self.phi(scannum=i+1)
+            self.phi._check_data(scannum=i+1)
             output['phiparity'][i] = self.phi.parity
             output['tailsize'][i] = self.phi.tailsize
             output['gridosc'][i] = self.phi.gridosc
@@ -286,23 +342,21 @@ class GeneLinearScan(_GeneBaseClass):
                     output['omr'][i] = eval(match['omr'])
         self.omega = output
 
-    def plot_omega(self, xscale='linear', gammascale='linear', 
-                   filename='', oplot=[], save=False, index=False):
+    def plot_omega(self, xscale='linear', gammascale='linear', oplot=[]):
         if not self.omega:
             self._read_omega()
         fig, axes = plt.subplots(nrows=5, figsize=(6,6.75), sharex=True)
         data = self.omega
-        index=True
-        if self.scanlog and self.params['scan_dims']==1:
-            xdata = data[self.scanlog['paramname']]
+        if self.scanlog and self.scandims==1:
+            xdata = self.scanlog['paramvalues']
         else:
-            xdata = self.scans
+            xdata = np.arange(self.nscans)+1
         axes[0].plot(xdata, data['omi'], '-x', label=self.label)
         axes[1].plot(xdata, data['omr'], '-x', label=self.label)
         axes[2].plot(xdata, data['phiparity'], '-x', label=self.label)
         axes[3].plot(xdata, data['tailsize'], '-x', label=self.label)
         axes[4].plot(xdata, data['gridosc'], '-x', label=self.label)
-        if self.scanlog and self.params['scan_dims']==1:
+        if self.scanlog and self.scandims==1:
             for iax,key in enumerate(['omi','omr','phiparity','tailsize','gridosc']):
                 for i,x,y in zip(self.scans, xdata, data[key]):
                     axes[iax].annotate(str(i), (x,y),
@@ -342,10 +396,10 @@ class GeneLinearScan(_GeneBaseClass):
         axes[4].set_yscale('log')
         axes[4].set_ylabel('phi osc.')
         axes[4].set_ylim(1e-2,1)
-        if index:
-            axes[-1].set_xlabel('index')
-        else:
+        if self.scanlog and self.scandims==1:
             axes[-1].set_xlabel(self.scanlog['paramname'])
+        else:
+            axes[-1].set_xlabel('index')
         for ax in axes:
             ax.tick_params('both', reset=True, top=False, right=False)
             ax.set_xscale(xscale)
@@ -365,7 +419,6 @@ class GeneLinearScan(_GeneBaseClass):
             single_nrg = self._read_nrgdata(nrgfile)
             single_nrg.update({scanparam:scanvalues[i]})
             all_nrg.append(single_nrg)
-#        scanparam = self.scanlog['paramname']
         nruns = len(all_nrg)
         nlines = 4
         nax = nruns//nlines + int(bool(nruns%nlines))
@@ -393,51 +446,6 @@ class GeneLinearScan(_GeneBaseClass):
         fig.tight_layout()
         
 
-class GeneNonlinear(_GeneBaseClass):
-    """
-    A single GENE nonlinear IV simulation
-    """
-    
-    def __init__(self, path=None, label=None):
-        super().__init__(path=path, label=label)
-        self.nrg = None
-        self.energy = None
-
-    def plot_nrg(self):
-        if not self.nrg:
-            self.nrg = self._read_nrgdata(self.path / 'nrg.dat')
-        time = self.nrg['time']
-        t1 = np.searchsorted(time, 1.0)
-        fig, ax = plt.subplots(ncols=len(self.species), nrows=2, figsize=(9,5))
-        ax = ax.reshape((2,1))
-        for i,sp in enumerate(self.species):
-            nrg = self.nrg[sp]
-            for key,value in nrg.items():
-                if key.lower().startswith('q') or key.lower().startswith('gam'):
-                    plt.sca(ax[1,i])
-                else:
-                    plt.sca(ax[0,i])
-                label = '{} ({:.1e})'.format(key, value[-1])
-                plt.plot(time[t1:], value[t1:], label=label)
-            for iax in [0,1]:
-                plt.sca(ax[iax,i])
-                plt.title(sp)
-                plt.legend(loc='upper left')
-                plt.xlabel('time')
-        plt.tight_layout()
-
-    def plot_energy(self):
-        if not self.energy:
-            self.energy = self._read_energy(self.path / 'energy.dat')
-        time = self.energy['time']
-        plt.figure()
-        for key in ['drive','heatsrc','colldiss','hypvdiss','hypzdiss',
-                   'nonlinear','curvmisc']:
-            label = '{} ({:.1e})'.format(key, self.energy[key][-1])
-            plt.plot(time, self.energy[key], label=label)
-        plt.ylabel('energy term')
-        plt.xlabel('time')
-        plt.legend()
 
 
 #def compare_ballooning(field1, field2):
