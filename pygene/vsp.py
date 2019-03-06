@@ -23,6 +23,8 @@ class Vspace(object):
         self.species = self._parent.species
         self.path = None
         self.time = None
+        self._isnonlinear = self._parent._isnonlinear
+        self._islinearscan = self._parent._islinearscan
 #        self.shortpath = '/'.join(self.path.parts[-3:])
 #        self.plotlabel = self._parent.plotlabel
 #        self.filelabel = self._parent.filelabel
@@ -61,21 +63,12 @@ class Vspace(object):
             self.path = self._parent.path / 'vsp.dat'
 
     def _read_paramsfile(self):
-        if self._scannum:
-            paramsfile = self._parent.path / 'parameters_{:04d}'.format(self._scannum)
-        else:
+        if self._isnonlinear:
             paramsfile = self._parent.path / 'parameters.dat'
-        if hasattr(self._parent, '_scannum'):
-            if not isinstance(self._parent._processed_parameters, dict) or \
-                self._scannum != self._parent._processed_parameters.get('_scannum',0):
-                # current scannum does not match parent's archived scannum,
-                # so update processed parameters
-                self._parent._get_processed_parameters(paramsfile=paramsfile, 
-                                                       scannum=self._scannum)
         else:
-            if not isinstance(self._parent._processed_parameters, dict):
-                self._parent._get_processed_parameters(paramsfile=paramsfile)
-        self._processed_parameters = self._parent._processed_parameters
+            paramsfile = self._parent.path / 'parameters_{:04d}'.format(self._scannum)
+        self._processed_parameters = \
+            self._parent._get_processed_parameters(paramsfile=paramsfile)
         self.nz0 = self._processed_parameters['nz0']
         self.nv0 = self._processed_parameters['nv0']
         self.nw0 = self._processed_parameters['nw0']
