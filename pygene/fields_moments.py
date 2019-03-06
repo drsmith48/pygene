@@ -49,7 +49,7 @@ class _DataABC(object):
     def _check_data(self, scannum=None, ivar=None, tind=None):
         if self._islinearscan:
             if scannum is None:
-                scannum = 0
+                scannum = 1
             self._scannum = scannum
         if ivar is not None:
             self._ivar = ivar
@@ -62,75 +62,6 @@ class _DataABC(object):
         self._adjust_tind(tind)
         self._get_data()
             
-    
-#    def _check_linearscan_data(self, scannum=None, ivar=None, tind=None):
-#        if scannum is None:
-#            scannum = 0
-#        if scannum != self._scannum:
-#            self._scannum = scannum
-#        self._check_data(ivar=ivar, tind=tind)
-#        if ivar is not None:
-#            self._ivar = ivar
-#        if tind is None:
-#            tind = -1
-#        self._get_parent_parameters()
-#        self._set_binary_configuration(
-#            nfields=self._nvars,
-#            elements=self._ndatapoints,
-#            isdouble=self._processed_parameters['PRECISION']=='DOUBLE',
-#            isbig=self._processed_parameters['ENDIANNESS']=='BIG')
-#        self._set_subclass_path()
-#        self._read_time_array()
-#        self.tind = self._adjust_tind(tind)
-#        self._get_data()
-
-#    def __call__(self, scannum=None, ivar=None, tind=None):
-#        """
-#        Set tind, scannum, and _ivar
-#        Call _load_scan() or _get_data() if needed
-#        """
-#        do_reload_data = False
-#        # check for new data/scan load
-#        if (scannum is not None and scannum != self._scannum) or \
-#            (not hasattr(self._parent, '_scannum') and not self._scannum):
-#            if scannum is not None:
-#                self._scannum = scannum
-#            else:
-#                self._scannum = -1
-#            self._load_scan()
-#            if tind is None:
-#                tind = -1
-#            do_reload_data = True
-#        if ivar is None and self._ivar is None:
-#            ivar = 0
-#        if ivar is not None and ivar != self._ivar:
-#            # load new moment data
-#            # (n/a for fields)
-#            self._ivar = ivar
-#            do_reload_data = True
-#        if tind is None and self.tind is None:
-#            tind = -1
-#        if tind is not None:
-#            tind = self._adjust_tind(tind)
-#            if tind != self.tind:
-#                self.tind = tind
-#                do_reload_data = True
-#        # load data/scan, if needed
-#        if do_reload_data:
-#            self._get_data()
-#        return self
-            
-#    def _load_scan(self):
-#        # load scan item configuration based on scannum
-#        self._get_parent_parameters()
-#        self._set_binary_configuration(
-#            nfields=self._nvars,
-#            elements=self._ndatapoints,
-#            isdouble=self._processed_parameters['PRECISION']=='DOUBLE',
-#            isbig=self._processed_parameters['ENDIANNESS']=='BIG')
-#        self._set_subclass_path()
-#        self._read_time_array()
-        
     def _set_subclass_path(self):
         # implement in subclass
         pass
@@ -142,19 +73,6 @@ class _DataABC(object):
             paramsfile = self._parent.path / 'parameters_{:04d}'.format(self._scannum)
         self._processed_parameters = \
             self._parent._get_processed_parameters(paramsfile=paramsfile)
-#        self._process_parameters = self._parent._get_processed_parameters
-#        if hasattr(self._parent, '_scannum'):
-#            if not isinstance(self._parent._processed_parameters, dict) or \
-#                self._scannum != self._parent._processed_parameters.get('_scannum',0):
-#                # current scannum does not match parent's archived scannum,
-#                # so update processed parameters
-#                self._parent._get_processed_parameters(paramsfile=paramsfile, 
-#                                                       scannum=self._scannum)
-#        else:
-#            if not self._parent._processed_parameters or \
-#                not isinstance(self._parent._processed_parameters, dict):
-#                self._parent._get_processed_parameters(paramsfile=paramsfile)
-#        self._processed_parameters = self._parent._processed_parameters
         # get simulation domain, make grids
         self.nx0 = self._processed_parameters['nx0']
         self.nky0 = self._processed_parameters['nky0']
@@ -274,14 +192,9 @@ class _DataABC(object):
 
     def plot_mode(self, scannum=None, ivar=None, tind=None):
         self._check_data(scannum=scannum, ivar=ivar, tind=tind)
-        if self.tind.size==1:
-            plot_title = 't={:.0f}'.format(self.time[self.tind[0]])
-        else:
-            plot_title+= 't={:.0f}-{:.0f}'.format(self.time[self.tind[0]],
-                                               self.time[self.tind[-1]])
-        plot_title += ' {}'.format(self._parent.label)
+        plot_title = self._parent.label
         if self._islinearscan:
-            plot_title += '/{:04d}'.format(self._scannum)
+            plot_title += ' index {:d}'.format(self._scannum)
         if self.nky0==1:
             # linear sim with nky0=1
             fig, ax = plt.subplots(nrows=1, ncols=3, figsize=[11,3.25])

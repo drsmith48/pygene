@@ -25,44 +25,29 @@ class Vspace(object):
         self.time = None
         self._isnonlinear = self._parent._isnonlinear
         self._islinearscan = self._parent._islinearscan
-#        self.shortpath = '/'.join(self.path.parts[-3:])
-#        self.plotlabel = self._parent.plotlabel
-#        self.filelabel = self._parent.filelabel
         
-    def __call__(self, tind=None, scannum=None):
-        do_reload_data = False
-        if scannum is not None and scannum != self._scannum:
+    def _check_data(self, scannum=None, tind=None):
+        if self._islinearscan:
+            if scannum is None:
+                scannum = 1
             self._scannum = scannum
-            self._read_paramsfile()
-            self._make_grids()
-            self._set_binary_configuration()
-            self._set_vsp_path()
-            self._read_time_array()
-            if tind is None:
-                tind = -1
-            do_reload_data = True
-        if self.time is None:
-            self._set_vsp_path()
-            self._read_time_array()
-        if tind is None and self.tind is None:
+        if tind is None:
             tind = -1
-        if tind is not None:
-            tind = self._adjust_tind(tind)
-            if tind != self.tind:
-                self.tind = tind
-                do_reload_data = True
-        # load data/scan, if needed
-        if do_reload_data:
-            self._get_data()
-        return self
+        self._get_parent_parameters()
+        self._make_grids()
+        self._set_binary_configuration()
+        self._set_vsp_path()
+        self._read_time_array()
+        self.tind = self._adjust_tind(tind)
+        self._get_data()
     
     def _set_vsp_path(self):
-        if self._scannum:
+        if self._islinearscan:
             self.path = self._parent.path / 'vsp_{:04d}'.format(self._scannum)
         else:
             self.path = self._parent.path / 'vsp.dat'
 
-    def _read_paramsfile(self):
+    def _get_parent_parameters(self):
         if self._isnonlinear:
             paramsfile = self._parent.path / 'parameters.dat'
         else:
@@ -134,15 +119,7 @@ class Vspace(object):
         tind[tind<0] += self.time.size
         return tind
         
-    def _get_data(self, tind=None):
-        if tind is not None:
-            self.tind = tind
-        if isinstance(self.tind, (tuple,list,np.ndarray)):
-            self.tind = np.asarray(self.tind, dtype=np.int)
-        else:
-            self.tind = np.asarray([self.tind], dtype=np.int)
-#        self._read_time_array()
-        self.tind[self.tind<0] += self.time.size
+    def _get_data(self):
         self.timeslices = self.time[self.tind]
         self.vspdata = {}
         for spname in self.species:
@@ -165,15 +142,10 @@ class Vspace(object):
                     self.vspdata[spname][:,:,:,i] = rawdata[:,:,:,isp,4]
     
     def plot_vspace(self, tind=None, scannum=None):
-        self(tind=tind, scannum=scannum)
-        if self.tind.size==1:
-            title = 't={:.0f}'.format(self.time[self.tind[0]])
-        else:
-            title+= 't={:.0f}-{:.0f}'.format(self.time[self.tind[0]],
-                                               self.time[self.tind[-1]])
-        title += ' {}'.format(self._parent.label)
+        self._check_data(tind=tind, scannum=scannum)
+        title = self._parent.label
         if self._scannum:
-            title += '/{:04d}'.format(self._scannum)
+            title += ' index {:d}'.format(self._scannum)
         self._plot_title = title
         # make uniformly-spaced grid in log10(mu) space
         self.mugrid_log10 = np.log10(self.mugrid)

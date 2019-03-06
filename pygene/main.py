@@ -35,7 +35,7 @@ class _GeneBaseClass(object):
             path = filedialog.askdirectory(initialdir=genehome.as_posix())
             path = Path(path)
         self.path = utils.validate_path(path)
-        self.label = label if label else self.path.parts[-1]
+        self.label = label if label else '/'.join(self.path.parts[-2:])
         # check for 'parameters' file
         try:
             self._paramsfile = utils.validate_path(Path(self.path/'parameters'))
@@ -241,6 +241,7 @@ class GeneNonlinear(_GeneBaseClass):
         ax = ax.reshape((2,1))
         for i,sp in enumerate(self.species):
             nrg = self.nrg[sp]
+            title = '{} {}'.format(self.label, sp)
             for key,value in nrg.items():
                 if key.lower().startswith('q') or key.lower().startswith('gam'):
                     plt.sca(ax[1,i])
@@ -250,7 +251,7 @@ class GeneNonlinear(_GeneBaseClass):
                 plt.plot(time[t1:], value[t1:], label=label)
             for iax in [0,1]:
                 plt.sca(ax[iax,i])
-                plt.title(sp)
+                plt.title(title)
                 plt.legend(loc='upper left')
                 plt.xlabel('time')
         plt.tight_layout()
@@ -266,6 +267,7 @@ class GeneNonlinear(_GeneBaseClass):
             plt.plot(time, self.energy[key], label=label)
         plt.ylabel('energy term')
         plt.xlabel('time')
+        plt.title(self.label)
         plt.legend()
 
 
@@ -281,8 +283,6 @@ class GeneLinearScan(_GeneBaseClass):
         super().__init__(path=path, label=label)
 
         self.omega = {}
-#        self._scannum = -1
-
         if isinstance(self.params['scan_dims'], str):
             dim_scans = [eval(s) for s in self.params['scan_dims'].split(' ')]
             self.scandims = len(dim_scans)
@@ -361,26 +361,7 @@ class GeneLinearScan(_GeneBaseClass):
                 for i,x,y in zip(self.scans, xdata, data[key]):
                     axes[iax].annotate(str(i), (x,y),
                         xytext=(2,2), textcoords='offset points')
-#        if not isinstance(oplot, (list, tuple)):
-#            oplot = [oplot]
-#        for sim in oplot:
-#            data = sim.omega
-#            if index:
-#                axes[0].plot(sim.scans, data['omi'], '-x', label=sim.plotlabel)
-#                axes[1].plot(sim.scans, data['omr'], '-x', label=sim.plotlabel)
-#                axes[2].plot(sim.scans, data['phiparity'], '-x', label=sim.plotlabel)
-#                axes[3].plot(sim.scans, data['tailsize'], '-x', label=sim.plotlabel)
-#                axes[4].plot(sim.scans, data['gridosc'], '-x', label=sim.plotlabel)
-#            else:
-#                axes[0].plot(data[scanparam], data['omi'], '-x', label=sim.plotlabel)
-#                axes[1].plot(data[scanparam], data['omr'], '-x', label=sim.plotlabel)
-#                axes[2].plot(data[scanparam], data['phiparity'], '-x', label=sim.plotlabel)
-#                axes[3].plot(data[scanparam], data['tailsize'], '-x', label=sim.plotlabel)
-#                axes[4].plot(data[scanparam], data['gridosc'], '-x', label=sim.plotlabel)
-#                for iax,key in enumerate(['omi','omr','phiparity','tailsize','gridosc']):
-#                    for i,x,y in zip(range(sim.nscans), data[scanparam], data[key]):
-#                        axes[iax].annotate(str(i+1), (x,y),
-#                            xytext=(2,2), textcoords='offset points')
+        axes[0].set_title(self.label)
         axes[0].set_ylabel('gamma/(c_s/a)')
         axes[0].set_yscale(gammascale)
         if gammascale=='linear':
@@ -399,7 +380,7 @@ class GeneLinearScan(_GeneBaseClass):
         if self.scanlog and self.scandims==1:
             axes[-1].set_xlabel(self.scanlog['paramname'])
         else:
-            axes[-1].set_xlabel('index')
+            axes[-1].set_xlabel('scan index')
         for ax in axes:
             ax.tick_params('both', reset=True, top=False, right=False)
             ax.set_xscale(xscale)
@@ -444,62 +425,3 @@ class GeneLinearScan(_GeneBaseClass):
             ax.set_yscale('log')
             ax.set_title(self.label)
         fig.tight_layout()
-        
-
-
-
-#def compare_ballooning(field1, field2):
-#    data1 = field1.ballooning[:]
-#    data2 = field2.ballooning[:]
-#    def norm(data):
-#        data = np.abs(data)
-#        return data / np.max(data)
-#    data1 = norm(data1)
-#    data2 = norm(data2)
-#    rms = np.sqrt(np.sum(np.square(np.abs(data1-data2)))/len(data1))
-#    maxdev = np.max(np.abs(data1-data2))
-#    print(field1.path, field1.varname)
-#    print(field2.path, field2.varname)
-#    print('  rms: {:.3f}  max-dev: {:.3f}'.format(rms, maxdev))
-#
-#def concat_nrg(path='', prefix='', xscale='linear', yscale='linear'):
-#    path = Path(path)
-#    rundirs = sorted(path.glob(prefix+'*'))
-#    nrgs = []
-#    for rundir in rundirs:
-#        sim=GeneNonlinear(rundir)
-#        nrgs.append(sim.nrg)
-#        species = sim.species
-#    for i,nrg in enumerate(nrgs):
-#        if i==0:
-#            newnrg = nrg
-#        else:
-#            newnrg['time'] = np.concatenate((newnrg['time'], 
-#                                             nrg['time'][1:]))
-#            for sp in species:
-#                nrg_sp = nrg[sp]
-#                for key in nrg_sp:
-#                    newnrg[sp][key] = np.concatenate((newnrg[sp][key], 
-#                                                      nrg_sp[key][1:]))
-#    t1 = np.searchsorted(newnrg['time'], 1.0)
-#    fig, ax = plt.subplots(ncols=2, nrows=2, figsize=(9,5))
-#    for key in newnrg[species[0]]:
-#        if key.lower().startswith('t'):
-#            plt.sca(ax[0,1])
-#        elif key.lower().startswith('gam'):
-#            plt.sca(ax[1,0])
-#        elif key.lower().startswith('q'):
-#            plt.sca(ax[1,1])
-#        else:
-#            plt.sca(ax[0,0])
-#        for sp in species:
-#            label = '{} {}'.format(sp, key)
-#            plt.plot(newnrg['time'][t1:], newnrg[sp][key][t1:], label=label)
-#    for axes in ax.flat:
-#        axes.set_xlabel('time')
-#        axes.legend()
-#        axes.set_xscale(xscale)
-#        axes.set_yscale(yscale)
-#        if yscale == 'log':
-#            axes.set_ylim(1e-1,None)
-#    plt.tight_layout()
