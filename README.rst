@@ -3,14 +3,16 @@
 PYGENE
 =============
 
-Python tools to analyze GENE output (http://genecode.org/)
+Simple tools to analyze GENE output (http://genecode.org/)
 
-Runs on Python 2/3.  Prereqs: numpy, scipy, matplotlib
+Runs on Python 2/3 with numpy, scipy, matplotlib
 
 Usage
 -------------
 
-Linear scan::
+Linear scan analysis:
+
+.. code-block:: python
 
   from pygene import GeneLinearScan
   scan = GeneLinearScan('problem_003/scanfiles0016')
@@ -22,7 +24,9 @@ Linear scan::
   scan.electrons.plot_mode(scannum=4, moment=3)
   scan.vsp.plot_vspace(species='ions', scannum=3)
 
-Nonlinear::
+Nonlinear simulation analysis:
+
+.. code-block:: python
 
   from pygene import GeneNonlinear
   nl = GeneNonlinear('problem_004')

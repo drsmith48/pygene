@@ -102,6 +102,40 @@ class _GeneBaseClass(object):
         for species in self.species:
             setattr(self, species, Moment(species=species, parent=self))
         self.vsp = Vspace(parent=self)
+        
+    def domain(self, scannum=1):
+        if self._isnonlinear:
+            paramsfile = self.path / 'parameters.dat'
+        else:
+            paramsfile = self.path / 'parameters_{:04d}'.format(scannum)
+        params = self._get_processed_parameters(paramsfile=paramsfile)
+        nx0 = params['nx0']
+        nky0 = params['nky0']
+        kymin = params['kymin']
+        lx = params['lx']
+        ly = params['ly']
+        nexc = params.get('nexc', 0)
+        n0_global = params.get('n0_global', 0)
+        delkx = 2*np.pi / lx
+        kxmax = nx0/2 * delkx
+        print('x domain')
+        print('  nx0 = {:d}'.format(nx0))
+        print('  lx/rho-i = {:.3g}'.format(lx))
+        print('  xres/rho-i = {:.3g}'.format(lx/nx0))
+        print('  kxres*rho-i = {:.3g}'.format(delkx))
+        print('  kxmax*rho-i = {:.3g}'.format(kxmax))
+        print('  nexc = {:d}'.format(nexc))
+        print('ky domain')
+        print('  nky0 = {:d}'.format(nky0))
+        print('  ly/rho-i = {:.3g}'.format(ly))
+        print('  kymin*rho-i = {:.3g}'.format(kymin))
+        if nky0>1: print('  kymax*rho-i = {:.3g}'.format(kymin*nky0))
+        print('  n0_global = {:d}'.format(n0_global))
+        print('nz0 = {:d}'.format(params['nz0']))
+        print('nv0 = {:d}'.format(params['nv0']))
+        print('nw0 = {:d}'.format(params['nw0']))
+#        for key, val in params.items():
+#            print(key, val)
 
     def _get_processed_parameters(self, paramsfile=None):
         """
