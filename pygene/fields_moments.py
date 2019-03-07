@@ -19,7 +19,6 @@ from . import utils
 
 field_names = ['phi', 'apar', 'bpar']
 mom_names = ['dens', 'T_para', 'T_perp', 'Q_para', 'Q_perp', 'u_para']
-dbmin = -30
 
 class _DataABC(object):
 
@@ -149,13 +148,14 @@ class _DataABC(object):
                 data[:,:,:,i] = flatdata.reshape((self.nz0,self.nky0,self.nx0)).transpose()
         data_kxkyz_f = data[:,:,:,-1]
         if self.nky0>1:
-            data_xyz = np.square(np.abs(np.fft.ifft2(data_kxkyz_f, axes=[0,1])))
+            data_xyz = np.real(np.fft.ifft2(data_kxkyz_f, axes=[0,1]))
             self._xyimage = data_xyz[:,:,self.nz0//2]
-            self._xzimage = np.sum(data_xyz, axis=1)
+#            self._xzimage = np.sum(data_xyz, axis=1)
+            self._xzimage = data_xyz[:,self.nky0//2,:]
         else:
             data_kxz_f = data_kxkyz_f[:,0,:]
             self._xyimage = None
-            self._xzimage = np.square(2*np.pi*np.abs(np.fft.ifft(data_kxz_f, axis=0)))
+            self._xzimage = np.real(np.fft.ifft(data_kxz_f, axis=0))
         # roll in kx dimension to order from kxmin to kxmax
         self.data = np.roll(data, self.nx0//2-1, axis=0)
         self.kxspectrum = np.mean(np.square(np.abs(self.data)), axis=(1,2,3))
@@ -201,7 +201,7 @@ class _DataABC(object):
         else:
             # nonlinear sim with nky0>1
             fig, ax = plt.subplots(nrows=2, ncols=3, figsize=[11,5.5])
-        # plot ballooning mode structure in axis #1
+        # plot parallel mode structure in axis #1
         plt.sca(ax.flat[0])
         plt.plot(self.ballgrid, np.abs(self.ballooning), label='Abs()')
         if self._islinearscan:
@@ -218,7 +218,7 @@ class _DataABC(object):
             if itwopi != 0:
                 plt.plot(-np.ones(2)*itwopi, ylim, color='tab:gray', linestyle='--')
             itwopi += 2
-        # plot kx spectrum
+        # plot kx spectrum in axis #2
         plt.sca(ax.flat[1])
         if self.kxgrid.size >= 64:
             style='-'
@@ -228,19 +228,59 @@ class _DataABC(object):
         plt.xlabel('kx')
         plt.ylabel('PSD('+self.varname+') [dB]')
         plt.title(plot_title)
-        # x,z image
+        # plot x,z image in axis #3
         plt.sca(ax.flat[2])
         plt.imshow(self._xzimage.transpose(),
                    aspect='auto',
-                   extent=[-self.lx/2, self.lx/2,
-                   self.zgrid[0], self.zgrid[-1]],
+                   extent=[-self.lx/2, self.lx/2,-np.pi,np.pi],
                    origin='lower',
-                   cmap=plt.get_cmap('gnuplot2'),
+                   cmap=plt.get_cmap('seismic'),
                    interpolation='bilinear')
+        m = np.max(np.abs(self._xzimage))
+        plt.clim(-m,m)
         plt.xlabel('x')
-        plt.ylabel('z')
+        plt.ylabel('z (rad)')
         plt.title(plot_title)
         plt.colorbar()
+        if self._isnonlinear:
+            data = np.mean(np.abs(self.data),axis=3)
+            # plot kx,ky spectrum in axis #4
+            plt.sca(ax.flat[3])
+            plt.imshow(utils.log1010(np.mean(data, axis=2)).transpose(),
+                       aspect='auto',
+                       extent=[self.kxgrid[0], self.kxgrid[-1],
+                               self.kygrid[0], self.kygrid[-1]],
+                       origin='lower',
+                       cmap=plt.get_cmap('gnuplot2'),
+                       interpolation='bilinear')
+            plt.clim(-30,0)
+            plt.xlabel('kx')
+            plt.ylabel('ky')
+            plt.title(plot_title)
+            plt.colorbar()
+            # plot ky spectrum in axis #5
+            plt.sca(ax.flat[4])
+            plt.plot(self.kygrid, utils.log1010(np.mean(data, axis=(0,2))))
+            plt.xlabel('ky')
+            plt.ylim(-35,-5)
+            plt.ylabel('PSD('+self.varname+') [dB]')
+            plt.title(plot_title)
+            # plot x,y image in axis #6
+            lx = self._processed_parameters['lx']
+            ly = self._processed_parameters['ly']
+            plt.sca(ax.flat[5])
+            plt.imshow(self._xyimage.transpose(),
+                       origin='lower',
+                       cmap=plt.get_cmap('seismic'),
+                       extent=[-lx/2,lx/2,-ly/2,ly/2],
+                       interpolation='bilinear',
+                       aspect='equal')
+            m = np.max(np.abs(self._xyimage))
+            plt.clim(-m,m)
+            plt.colorbar()
+            plt.xlabel('x')
+            plt.ylabel('y')
+            plt.title(plot_title)
         plt.tight_layout()
         
 

@@ -20,6 +20,7 @@ from pygene import GeneLinearScan, GeneNonlinear
 plt.close('all')
 
 base = pathlib.Path('/p/gene/drsmith/genecode')
+#linear_data_path = pathlib.Path('linear_scan_data').absolute()
 
 @pytest.fixture
 def lin():
@@ -62,3 +63,5 @@ def test_nonlinear_vsp(nl):
 
 if __name__=='__main__':
     pytest.main()
+#    pytest.main(['-k','field or moment'])
+    

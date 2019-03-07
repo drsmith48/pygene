@@ -40,9 +40,9 @@ class _GeneBaseClass(object):
         self.label = label if label else '/'.join(self.path.parts[-2:])
         # check for 'parameters' file
         try:
-            self._paramsfile = utils.validate_path(Path(self.path/'parameters'))
-        except:
             self._paramsfile = utils.validate_path(Path(self.path/'parameters.dat'))
+        except:
+            self._paramsfile = utils.validate_path(Path(self.path/'parameters'))
         # attribute declarations
         self.scandims = None
         self.nscans = None
