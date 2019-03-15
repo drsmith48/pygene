@@ -24,7 +24,7 @@ base = pathlib.Path('/p/gene/drsmith/genecode')
 
 @pytest.fixture
 def lin():
-    return GeneLinearScan(base/'eq21-pn65-n1'/'scanfiles0000')
+    return GeneLinearScan(base/'eq21-v01/pn65/scanfiles0000')
 
 def test_linear_scan(lin):
     lin.plot_nsq()
@@ -44,7 +44,7 @@ def test_linear_vsp(lin):
 
 @pytest.fixture
 def nl():
-    return GeneNonlinear(base/'eq21-pn60-nonlinear'/'run-19215555')
+    return GeneNonlinear(base/'eq21-pn60-nl01/run-19543059')
 
 def test_nonlinear_timehistory(nl):
     nl.plot_nrg()

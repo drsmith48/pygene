@@ -324,7 +324,7 @@ class GeneLinearScan(_GeneBaseClass):
             self.scandims = len(dim_scans)
             self.nscans = np.prod(np.array(dim_scans))
         elif isinstance(self.params['scan_dims'], int):
-            self.scandimes = 1
+            self.scandims = 1
             self.nscans = self.params['scan_dims']
         else:
             raise ValueError('scan_dims is invalid: {}'.
@@ -354,6 +354,7 @@ class GeneLinearScan(_GeneBaseClass):
                   'omi':np.empty(nscans)*np.NaN,
                   'omr':np.empty(nscans)*np.NaN,
                   'phiparity':np.empty(nscans)*np.NaN,
+                  'phiparity2':np.empty(nscans)*np.NaN,
                   'tailsize':np.empty(nscans)*np.NaN,
                   'gridosc':np.empty(nscans)*np.NaN}
         for i in np.arange(nscans):
@@ -363,6 +364,7 @@ class GeneLinearScan(_GeneBaseClass):
                 continue
             self.phi._check_data(scannum=i+1)
             output['phiparity'][i] = self.phi.parity
+            output['phiparity2'][i] = self.phi.parity2
             output['tailsize'][i] = self.phi.tailsize
             output['gridosc'][i] = self.phi.gridosc
             with omega_file.open() as f:
@@ -378,7 +380,8 @@ class GeneLinearScan(_GeneBaseClass):
                     output['omr'][i] = eval(match['omr'])
         self.omega = output
 
-    def plot_omega(self, xscale='linear', gammascale='linear', oplot=[]):
+    def plot_omega(self, xscale='linear', gammascale='linear', oplot=[],
+                   omega_ylim=None):
         if not self.omega:
             self._read_omega()
         fig, axes = plt.subplots(nrows=5, figsize=(6,6.75), sharex=True)
@@ -389,20 +392,38 @@ class GeneLinearScan(_GeneBaseClass):
             xdata = np.arange(self.nscans)+1
         axes[0].plot(xdata, data['omi'], '-x', label=self.label)
         axes[1].plot(xdata, data['omr'], '-x', label=self.label)
-        axes[2].plot(xdata, data['phiparity'], '-x', label=self.label)
+        axes[2].plot(xdata, data['phiparity2'], '-x', label=self.label)
         axes[3].plot(xdata, data['tailsize'], '-x', label=self.label)
         axes[4].plot(xdata, data['gridosc'], '-x', label=self.label)
-        if self.scanlog and self.scandims==1:
-            for iax,key in enumerate(['omi','omr','phiparity','tailsize','gridosc']):
-                for i,x,y in zip(self.scans, xdata, data[key]):
-                    axes[iax].annotate(str(i), (x,y),
-                        xytext=(2,2), textcoords='offset points')
-        axes[0].set_title(self.label)
+        if oplot:
+            if not isinstance(oplot, (list,tuple)):
+                oplot = [oplot]
+            for sim in oplot:
+                if not sim.omega:
+                    sim._read_omega()
+                data = sim.omega
+                if sim.scanlog and sim.scandims==1:
+                    xdata = sim.scanlog['paramvalues']
+                else:
+                    xdata = np.arange(sim.nscans)+1
+                axes[0].plot(xdata, data['omi'], '-x', label=sim.label)
+                axes[1].plot(xdata, data['omr'], '-x', label=sim.label)
+                axes[2].plot(xdata, data['phiparity2'], '-x', label=sim.label)
+                axes[3].plot(xdata, data['tailsize'], '-x', label=sim.label)
+                axes[4].plot(xdata, data['gridosc'], '-x', label=sim.label)
+#        if self.scanlog and self.scandims==1:
+#            for iax,key in enumerate(['omi','omr','phiparity','tailsize','gridosc']):
+#                for i,x,y in zip(self.scans, xdata, data[key]):
+#                    axes[iax].annotate(str(i), (x,y),
+#                        xytext=(2,2), textcoords='offset points')
+        axes[0].set_title('/'.join(self.path.parts[-3:]))
         axes[0].set_ylabel('gamma/(c_s/a)')
         axes[0].set_yscale(gammascale)
         if gammascale=='linear':
             ylim = axes[0].get_ylim()
             axes[0].set_ylim(0,ylim[1]*1.2)
+        if omega_ylim:
+            axes[0].set_ylim(omega_ylim)
         axes[1].set_ylabel('omega/(c_s/a)')
         axes[1].set_ylim()
         axes[2].set_ylim(-1,1)
@@ -420,14 +441,16 @@ class GeneLinearScan(_GeneBaseClass):
         for ax in axes:
             ax.tick_params('both', reset=True, top=False, right=False)
             ax.set_xscale(xscale)
-            if len(ax.get_lines())>=2:
-                ax.legend()
+#            if len(ax.get_lines())>=2:
+#                ax.legend()
         fig.tight_layout()
 
     def plot_nsq(self, species=None, save=False, filename=''):
         if species is None:
             species = self.species[0]
         all_nrg = []
+        if not self.scanlog:
+            return
         scanparam = self.scanlog['paramname']
         scanvalues = self.scanlog['paramvalues']
         for i,file in enumerate(sorted(self.path.glob('nrg*'))):
@@ -459,5 +482,5 @@ class GeneLinearScan(_GeneBaseClass):
             ax.set_xlabel('time (c_s/a)')
             ax.set_ylabel('|n|^2')
             ax.set_yscale('log')
-            ax.set_title(self.label)
+            ax.set_title('/'.join(self.path.parts[-3:]))
         fig.tight_layout()

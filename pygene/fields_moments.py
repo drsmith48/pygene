@@ -175,9 +175,17 @@ class _DataABC(object):
         # even parity: sumsig >> diffsig > 0 and parity ~ +1
         # odd parity: diffsig >> sumsig > 0 and parity ~ -1
         imid = self.ballooning.size//2
-        diffsig = np.mean(np.abs(self.ballooning[imid+1:] - self.ballooning[imid-1:0:-1]))
-        sumsig = np.mean(np.abs(self.ballooning[imid+1:] + self.ballooning[imid-1:0:-1]))
+        diffsig = np.mean(np.abs(self.ballooning[imid+1:] - \
+                                 self.ballooning[imid-1:0:-1]))
+        sumsig = np.mean(np.abs(self.ballooning[imid+1:] + \
+                                self.ballooning[imid-1:0:-1]))
         self.parity = np.mean(np.divide(sumsig-diffsig,sumsig+diffsig))
+        nz4 = self.nz0//2
+        diffsig2 = np.mean(np.abs(self.ballooning[imid+1:imid+1+nz4] - \
+                                  self.ballooning[imid-1:imid-1-nz4:-1]))
+        sumsig2 = np.mean(np.abs(self.ballooning[imid+1:imid+1+nz4] + \
+                                 self.ballooning[imid-1:imid-1-nz4:-1]))
+        self.parity2 = np.mean(np.divide(sumsig2-diffsig2,sumsig2+diffsig2))
         taillength = np.int(np.floor(0.025*paragridsize))
         amode = np.abs(self.ballooning)
         tails = np.concatenate((amode[0:taillength+1], amode[-(taillength+1):]))
