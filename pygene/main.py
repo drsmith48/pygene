@@ -309,7 +309,15 @@ class GeneNonlinear(_GeneBaseClass):
         plt.legend()
 
 
-def concat_nrg(sims):
+def concat_nrg(inputs):
+    if isinstance(inputs[0], GeneNonlinear):
+        sims = inputs
+    else:
+#        sims = []
+#        for d in inputs:
+#            print(d)
+#            sims.append(GeneNonlinear(d))
+        sims = [GeneNonlinear(d) for d in inputs]
     sim = sims.pop(0)
     if not isinstance(sim, GeneNonlinear):
         raise ValueError
@@ -338,6 +346,8 @@ def concat_nrg(sims):
             plt.legend(loc='upper left')
             plt.xlabel('time')
             plt.xlim(20,None)
+    plt.sca(ax[0,0])
+    plt.title(sims[-1].label)
     plt.tight_layout()
 
 
