@@ -236,8 +236,10 @@ class GeneNonlinear(_GeneBaseClass):
     
     def __init__(self, path=None, label=None):
         super().__init__(path=path, label=label)
-        self.nrg = None
-        self.energy = None
+#        self.nrg = None
+        self.nrg = self._read_nrgdata(self.path / 'nrg.dat')
+#        self.energy = None
+        self._read_energy(self.path / 'energy.dat')
 
     def _read_energy(self, file):
         data = np.empty((0,14))
@@ -305,6 +307,38 @@ class GeneNonlinear(_GeneBaseClass):
         plt.xlabel('time')
         plt.title(self.label)
         plt.legend()
+
+
+def concat_nrg(sims):
+    sim = sims.pop(0)
+    if not isinstance(sim, GeneNonlinear):
+        raise ValueError
+    species = sim.species
+    nrg = sim.nrg.copy()
+    for sim in sims:
+        nrg['time'] = np.append(nrg['time'], sim.nrg['time'])
+        for sp in sim.species:
+            for key in sim.nrg[sp].keys():
+                nrg[sp][key] = np.concatenate([nrg[sp][key], sim.nrg[sp][key]])
+    time = nrg['time']
+    t1 = np.searchsorted(time, 1.0)
+    fig, ax = plt.subplots(ncols=len(species), nrows=2, figsize=(9,5))
+    ax = ax.reshape((2,1))
+    for i,sp in enumerate(species):
+#        nrg = self.nrg[sp]
+        for key,value in nrg[sp].items():
+            if key.lower().startswith('q') or key.lower().startswith('gam'):
+                plt.sca(ax[1,i])
+            else:
+                plt.sca(ax[0,i])
+            label = '{} ({:.1e})'.format(key, value[-1])
+            plt.plot(time[t1:], value[t1:], label=label)
+        for iax in [0,1]:
+            plt.sca(ax[iax,i])
+            plt.legend(loc='upper left')
+            plt.xlabel('time')
+            plt.xlim(20,None)
+    plt.tight_layout()
 
 
 class GeneLinearScan(_GeneBaseClass):

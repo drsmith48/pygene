@@ -6,4 +6,4 @@ from future import standard_library
 standard_library.install_aliases()
 
 
-from .main import genework, GeneLinearScan, GeneNonlinear
+from .main import genework, GeneLinearScan, GeneNonlinear, concat_nrg
