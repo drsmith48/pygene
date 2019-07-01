@@ -202,7 +202,7 @@ class _DataABC(object):
         self._check_data(scannum=scannum, ivar=ivar, tind=tind)
         plot_title = self._parent.label
         if self._islinearscan:
-            plot_title += ' index {:d}'.format(self._scannum)
+            plot_title += ' id {:d}'.format(self._scannum)
         if self.nky0==1:
             # linear sim with nky0=1
             fig, ax = plt.subplots(nrows=1, ncols=3, figsize=[11,3.25])
@@ -218,6 +218,9 @@ class _DataABC(object):
         plt.title(plot_title)
         plt.xlabel('Ballooning angle (rad/pi)')
         plt.ylabel(self.varname)
+        plt.annotate('ky={:.3f}'.format(self.kymin),
+                     xycoords='axes fraction',
+                     xy=[0.05,0.92])
         xmax = self.ballgrid.max()
         itwopi = 0
         ylim = plt.gca().get_ylim()
