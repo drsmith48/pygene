@@ -37,18 +37,21 @@ class _GeneBaseClass(object):
             path = filedialog.askdirectory(initialdir=genework.as_posix())
             path = Path(path)
         self.path = utils.validate_path(path)
-        self.label = label if label else '/'.join(self.path.parts[-3:])
-        # check for 'parameters' file
+        self.label = label if label else '/'.join(self.path.parts[-2:])
+        # attribute declarations
+        self.scandims = None
+        self.nscans = None
+        self.params = {}
+        self.fields = []
+        self.species = []
+        self.vsp = None
+        self._islinearscan = None
+        self._isnonlinear = None
+        # get basic scan specs from params file
         try:
             self._paramsfile = utils.validate_path(Path(self.path/'parameters.dat'))
         except:
             self._paramsfile = utils.validate_path(Path(self.path/'parameters'))
-        # attribute declarations
-        self.scandims = None
-        self.nscans = None
-        # get basic simulation parameters
-        self.params = {}
-        self.species = []
         with open(self._paramsfile) as f:
             def get_value(pattern, default=None):
                 f.seek(0)
@@ -73,6 +76,8 @@ class _GeneBaseClass(object):
             get_value('nonlinear')
             get_value('nky0')
             get_value('scan_dims')
+            get_value('istep_omega')
+            get_value('dt_max')
             f.seek(0)
             for line in f:
                 if re.match("^name\s*=", line):
@@ -82,7 +87,7 @@ class _GeneBaseClass(object):
                     if len(self.species) == self.params['n_spec']:
                         break
         # assemble fields
-        self.fields = ['phi']
+        self.fields.append('phi')
         if self.params['beta']:
             self.fields.append('apar')
             self.params['apar'] = True
@@ -94,8 +99,10 @@ class _GeneBaseClass(object):
                            self.params['scan_dims'] is None
         self._islinearscan = self.params['nonlinear'] is False and \
                             self.params['nky0']==1 and \
-                            self.params['scan_dims']
+                            self.params['scan_dims'] > 0
         assert self._isnonlinear != self._islinearscan
+        
+    def _populate_fields_moments_vsp(self):
         # set attributes for fields and species
         for field in self.fields:
             setattr(self, field, Field(field=field, parent=self))
@@ -103,40 +110,6 @@ class _GeneBaseClass(object):
             setattr(self, species, Moment(species=species, parent=self))
         self.vsp = Vspace(parent=self)
         
-    def domain(self, scannum=1):
-        if self._isnonlinear:
-            paramsfile = self.path / 'parameters.dat'
-        else:
-            paramsfile = self.path / 'parameters_{:04d}'.format(scannum)
-        params = self._get_processed_parameters(paramsfile=paramsfile)
-        nx0 = params['nx0']
-        nky0 = params['nky0']
-        kymin = params['kymin']
-        lx = params['lx']
-        ly = params['ly']
-        nexc = params.get('nexc', 0)
-        n0_global = params.get('n0_global', 0)
-        delkx = 2*np.pi / lx
-        kxmax = nx0/2 * delkx
-        print('x domain')
-        print('  nx0 = {:d}'.format(nx0))
-        print('  lx/rho-i = {:.3g}'.format(lx))
-        print('  xres/rho-i = {:.3g}'.format(lx/nx0))
-        print('  kxres*rho-i = {:.3g}'.format(delkx))
-        print('  kxmax*rho-i = {:.3g}'.format(kxmax))
-        print('  nexc = {:d}'.format(nexc))
-        print('ky domain')
-        print('  nky0 = {:d}'.format(nky0))
-        print('  ly/rho-i = {:.3g}'.format(ly))
-        print('  kymin*rho-i = {:.3g}'.format(kymin))
-        if nky0>1: print('  kymax*rho-i = {:.3g}'.format(kymin*nky0))
-        print('  n0_global = {:d}'.format(n0_global))
-        print('nz0 = {:d}'.format(params['nz0']))
-        print('nv0 = {:d}'.format(params['nv0']))
-        print('nw0 = {:d}'.format(params['nw0']))
-#        for key, val in params.items():
-#            print(key, val)
-
     def _get_processed_parameters(self, paramsfile=None):
         """
         Used by fields/moments to get post-processed GENE parameters 
@@ -228,6 +201,38 @@ class _GeneBaseClass(object):
                  'qem':data[:,7,i]}
         return nrgdata
 
+    def print_domain(self, scannum=1):
+        if self._isnonlinear:
+            paramsfile = self.path / 'parameters.dat'
+        else:
+            paramsfile = self.path / 'parameters_{:04d}'.format(scannum)
+        params = self._get_processed_parameters(paramsfile=paramsfile)
+        nx0 = params['nx0']
+        nky0 = params['nky0']
+        kymin = params['kymin']
+        lx = params['lx']
+        ly = params['ly']
+        nexc = params.get('nexc', 0)
+        n0_global = params.get('n0_global', 0)
+        delkx = 2*np.pi / lx
+        kxmax = nx0/2 * delkx
+        print('x domain')
+        print('  nx0 = {:d}'.format(nx0))
+        print('  lx/rho-i = {:.3g}'.format(lx))
+        print('  xres/rho-i = {:.3g}'.format(lx/nx0))
+        print('  kxres*rho-i = {:.3g}'.format(delkx))
+        print('  kxmax*rho-i = {:.3g}'.format(kxmax))
+        print('  nexc = {:d}'.format(nexc))
+        print('ky domain')
+        print('  nky0 = {:d}'.format(nky0))
+        print('  ly/rho-i = {:.3g}'.format(ly))
+        print('  kymin*rho-i = {:.3g}'.format(kymin))
+        if nky0>1: print('  kymax*rho-i = {:.3g}'.format(kymin*nky0))
+        print('  n0_global = {:d}'.format(n0_global))
+        print('nz0 = {:d}'.format(params['nz0']))
+        print('nv0 = {:d}'.format(params['nv0']))
+        print('nw0 = {:d}'.format(params['nw0']))
+
 
 class GeneNonlinear(_GeneBaseClass):
     """
@@ -236,9 +241,8 @@ class GeneNonlinear(_GeneBaseClass):
     
     def __init__(self, path=None, label=None):
         super().__init__(path=path, label=label)
-#        self.nrg = None
+        self._populate_fields_moments_vsp()
         self.nrg = self._read_nrgdata(self.path / 'nrg.dat')
-#        self.energy = None
         self._read_energy(self.path / 'energy.dat')
 
     def _read_energy(self, file):
@@ -271,8 +275,6 @@ class GeneNonlinear(_GeneBaseClass):
                        'grossdrive':np.sum(data[:,3:5],axis=1)}
     
     def plot_nrg(self):
-        if not self.nrg:
-            self.nrg = self._read_nrgdata(self.path / 'nrg.dat')
         time = self.nrg['time']
         t1 = np.searchsorted(time, 1.0)
         fig, ax = plt.subplots(ncols=len(self.species), nrows=2, figsize=(9,5))
@@ -361,19 +363,29 @@ class GeneLinearScan(_GeneBaseClass):
     
     def __init__(self, path=None, label=None):
         super().__init__(path=path, label=label)
+        
+        if not (getattr(self, 'params', None) and getattr(self, 'path', None)):
+            raise AttributeError()
 
-        self.omega = {}
+        self.omega = None
+        self.scanlog = None
+        self.scandims = None
+        self.nscans = None
+        # read scan specifications
         if isinstance(self.params['scan_dims'], str):
-            dim_scans = [eval(s) for s in self.params['scan_dims'].split(' ')]
-            self.scandims = len(dim_scans)
-            self.nscans = np.prod(np.array(dim_scans))
+            scan_dims_list = self.params['scan_dims'].split(' ')
+            scan_dims = np.array([eval(s) for s in scan_dims_list])
+            self.scandims = scan_dims.size
+            self.nscans = scan_dims.prod()
         elif isinstance(self.params['scan_dims'], int):
             self.scandims = 1
             self.nscans = self.params['scan_dims']
-        else:
-            raise ValueError('scan_dims is invalid: {}'.
-                             format(self.params['scan_dims']))
+        else: raise ValueError()
+        self._populate_fields_moments_vsp()
+        self._read_scanlog()
+        self._read_omega()
 
+    def _read_scanlog(self):
         scanfile = self.path / 'scan.log'
         paramname = ''
         paramvalues = np.empty(0)
@@ -389,61 +401,80 @@ class GeneLinearScan(_GeneBaseClass):
         if paramvalues.size != 0:
             self.scanlog = {'paramname':paramname, 
                             'paramvalues':paramvalues}
-        else:
-            self.scanlog = None
-        self._read_omega()
 
     def _read_omega(self):
         nscans = self.nscans
         output = {'ky':np.empty(nscans)*np.NaN,
                   'omi':np.empty(nscans)*np.NaN,
                   'omr':np.empty(nscans)*np.NaN,
-                  'phiparity':np.empty(nscans)*np.NaN,
-                  'phiparity2':np.empty(nscans)*np.NaN,
+                  'parity':np.empty(nscans)*np.NaN,
                   'tailsize':np.empty(nscans)*np.NaN,
-                  'gridosc':np.empty(nscans)*np.NaN}
+                  'gridosc':np.empty(nscans)*np.NaN,
+                  'apar-omi':np.empty(nscans)*np.NaN,
+                  'apar-omr':np.empty(nscans)*np.NaN,
+                  'apar-parity':np.empty(nscans)*np.NaN,
+                  'apar-tailsize':np.empty(nscans)*np.NaN,
+                  'apar-gridosc':np.empty(nscans)*np.NaN,
+                  }
         for i in np.arange(nscans):
-            omega_file = self.path / 'omega_{:04d}'.format(i+1)
-            if not omega_file.exists():
-                print('missing omega file: {}'.format(omega_file.as_posix()))
-                continue
-            self.phi._check_data(scannum=i+1)
-            output['phiparity'][i] = self.phi.parity
-            output['phiparity2'][i] = self.phi.parity2
+            self.phi(scannum=i+1)
+            output['parity'][i] = self.phi.parity2
             output['tailsize'][i] = self.phi.tailsize
             output['gridosc'][i] = self.phi.gridosc
-            with omega_file.open() as f:
-                s = f.readline()
-                match = utils.re_omegafile.match(s)
-                if not match or len(match.groups()) != 3:
-                    print('bad omega file: {}'.format(omega_file.as_posix()))
-                    continue
-                output['ky'][i] = eval(match['ky'])
-                omi = eval(match['omi'])
-                if omi > 0:
-                    output['omi'][i] = omi
-                    output['omr'][i] = eval(match['omr'])
+            omega_file = self.path / 'omega_{:04d}'.format(i+1)
+            if omega_file.exists():
+                with omega_file.open() as f:
+                    s = f.readline()
+                    match = utils.re_omegafile.match(s)
+                    if not match or len(match.groups()) != 3:
+                        print('bad omega file: {}'.format(omega_file.as_posix()))
+                        raise ValueError
+                    output['ky'][i] = eval(match['ky'])
+                    omi = eval(match['omi'])
+                    if omi != 0:
+                        output['omi'][i] = omi
+                        output['omr'][i] = eval(match['omr'])
+            if not hasattr(self, 'apar'): continue
+            self.apar(scannum=i+1)
+            output['apar-parity'][i] = self.apar.parity2
+            output['apar-tailsize'][i] = self.apar.tailsize
+            output['apar-gridosc'][i] = self.apar.gridosc
+            self.apar(scannum=i+1, tind=[-2,-1])
+            istep = self.apar._processed_parameters['istep_field']
+            dt = self.apar._processed_parameters['dt_max']
+            data_f2 = self.apar.data[...,1]
+            data_f2[data_f2==0] = 1e-16
+            data_f1 = self.apar.data[...,0]
+            data_f1[data_f1==0] = 1e-16
+            delapar = np.log(data_f2/data_f1) / (dt*istep)
+            weights = np.abs(data_f1)
+            om_av = np.sum(delapar*weights) / weights.sum()
+            output['apar-omi'][i] = np.real(om_av)
+            output['apar-omr'][i] = np.imag(om_av)
         self.omega = output
 
     def plot_omega(self, xscale='linear', gammascale='linear', oplot=[],
                    gamma_lim=None, ky_lim=None, oplot_color=[]):
-        if not self.omega:
-            self._read_omega()
         fig, axes = plt.subplots(nrows=5, figsize=(6,6.75), sharex=True)
         data = self.omega
         if self.scanlog and self.scandims==1:
             xdata = self.scanlog['paramvalues']
         else:
             xdata = np.arange(self.nscans)+1
-        axes[0].plot(xdata, data['omi'], '-x', label=self.label)
-        axes[1].plot(xdata, data['omr'], '-x', label=self.label)
-        axes[2].plot(xdata, data['phiparity2'], '-x', label=self.label)
-        axes[3].plot(xdata, data['tailsize'], '-x', label=self.label)
-        axes[4].plot(xdata, data['gridosc'], '-x', label=self.label)
+        axes[0].plot(xdata, data['omi'], '-x', color='C0', label=self.label)
+        axes[0].plot(xdata, data['apar-omi'], '--o', color='C0', label=self.label)
+        axes[1].plot(xdata, data['omr'], '-x', color='C0', label=self.label)
+        axes[1].plot(xdata, data['apar-omr'], '--o', color='C0', label=self.label)
+        axes[2].plot(xdata, data['parity'], '-x', color='C0', label=self.label)
+        axes[3].plot(xdata, data['tailsize'], '-x', color='C0', label=self.label)
+        axes[4].plot(xdata, data['gridosc'], '-x', color='C0', label=self.label)
         if oplot:
             if not isinstance(oplot, (list,tuple)):
                 oplot = [oplot]
+            if not isinstance(oplot_color, (list,tuple)):
                 oplot_color = [oplot_color]
+            if not oplot_color:
+                oplot_color = [None for op in oplot]
             for sim,color in zip(oplot,oplot_color):
                 if not sim.omega:
                     sim._read_omega()
@@ -454,19 +485,24 @@ class GeneLinearScan(_GeneBaseClass):
                     xdata = np.arange(sim.nscans)+1
                 axes[0].plot(xdata, data['omi'], '-x', 
                     label=sim.label, color=color)
+                axes[0].plot(xdata, data['apar-omi'], '--o', 
+                    label=sim.label, color=color)
                 axes[1].plot(xdata, data['omr'], '-x', 
                     label=sim.label, color=color)
-                axes[2].plot(xdata, data['phiparity2'], '-x', 
+                axes[1].plot(xdata, data['apar-omr'], '--o', 
+                    label=sim.label, color=color)
+                axes[2].plot(xdata, data['parity'], '-x', 
+                    label=sim.label, color=color)
+                axes[2].plot(xdata, data['apar-parity'], '--o', 
                     label=sim.label, color=color)
                 axes[3].plot(xdata, data['tailsize'], '-x', 
                     label=sim.label, color=color)
+                axes[3].plot(xdata, data['apar-tailsize'], '--o', 
+                    label=sim.label, color=color)
                 axes[4].plot(xdata, data['gridosc'], '-x',
                     label=sim.label, color=color)
-#        if self.scanlog and self.scandims==1:
-#            for iax,key in enumerate(['omi','omr','phiparity','tailsize','gridosc']):
-#                for i,x,y in zip(self.scans, xdata, data[key]):
-#                    axes[iax].annotate(str(i), (x,y),
-#                        xytext=(2,2), textcoords='offset points')
+                axes[4].plot(xdata, data['apar-gridosc'], '--o', 
+                    label=sim.label, color=color)
         axes[0].set_title('/'.join(self.path.parts[-3:]))
         axes[0].set_ylabel('gamma/(c_s/a)')
         axes[0].set_yscale(gammascale)
@@ -480,12 +516,12 @@ class GeneLinearScan(_GeneBaseClass):
         axes[1].set_ylabel('omega/(c_s/a)')
         axes[1].set_ylim()
         axes[2].set_ylim(-1,1)
-        axes[2].set_ylabel('phi parity')
+        axes[2].set_ylabel('parity')
         axes[3].set_yscale('log')
-        axes[3].set_ylabel('phi tails')
+        axes[3].set_ylabel('mode tails')
         axes[3].set_ylim(1e-3,1)
         axes[4].set_yscale('log')
-        axes[4].set_ylabel('phi osc.')
+        axes[4].set_ylabel('grid osc.')
         axes[4].set_ylim(1e-2,1)
         if self.scanlog and self.scandims==1:
             axes[-1].set_xlabel(self.scanlog['paramname'])

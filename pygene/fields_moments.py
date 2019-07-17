@@ -34,42 +34,26 @@ class _DataABC(object):
         self._parent = parent
         self._isnonlinear = self._parent._isnonlinear
         self._islinearscan = self._parent._islinearscan
-        if self._isnonlinear:
-            self._scannum = None
-        else:
-            self._scannum = -1
+        self._scannum = None if self._isnonlinear else 1
         self._ivar = ivar
         self._processed_parameters = None
         self._ndatapoints = None
         self._binary_configuration = None
         self.tind = None
         self.time = None
-        
-    def _check_data(self, scannum=None, ivar=None, tind=None):
-        if self._islinearscan:
-            if scannum is None:
-                scannum = 1
-            self._scannum = scannum
-        if ivar is not None:
-            self._ivar = ivar
-        if tind is None:
-            tind = -1
-        self._get_parent_parameters()
+        self._get_parent_parameters(self._scannum)
         self._set_binary_configuration()
-        self._set_subclass_path()
+        self._set_path(self._scannum)
         self._read_time_array()
-        self._adjust_tind(tind)
-        self._get_data()
-            
-    def _set_subclass_path(self):
-        # implement in subclass
-        pass
         
-    def _get_parent_parameters(self):
-        if self._isnonlinear:
+    def __call__(self, *args, **kwargs):
+        self._check_data(*args, **kwargs)
+        
+    def _get_parent_parameters(self, scannum=None):
+        if self._isnonlinear and scannum is None:
             paramsfile = self._parent.path / 'parameters.dat'
         else:
-            paramsfile = self._parent.path / 'parameters_{:04d}'.format(self._scannum)
+            paramsfile = self._parent.path / 'parameters_{:04d}'.format(scannum)
         self._processed_parameters = \
             self._parent._get_processed_parameters(paramsfile=paramsfile)
         # get simulation domain, make grids
@@ -87,7 +71,7 @@ class _DataABC(object):
         delkx = 2*np.pi / self.lx
         kxmax = self.nx0/2 * delkx
         self.kxgrid = np.linspace(-(kxmax-delkx), kxmax, self.nx0)
-        self.kygrid = np.linspace(self.kymin, self.kymin*self.nky0, self.nky0)
+        self.kygrid = np.arange(self.nky0) * self.kymin
         delz = 2*np.pi / self.nz0
         self.zgrid = np.linspace(-np.pi, np.pi-delz, self.nz0)
 
@@ -113,6 +97,10 @@ class _DataABC(object):
         self._binary_configuration = (intsize, entrysize, leapfld, 
                                      nprt, npct, te, tesize)
 
+    def _set_path(self, scannum=None):
+        # implement in subclass
+        pass
+        
     def _read_time_array(self):
         intsize, entrysize, leapfld, nprt, npct, te, tesize = self._binary_configuration
         self.time = np.empty(0)
@@ -123,6 +111,22 @@ class _DataABC(object):
                 self.time = np.append(self.time, value)
                 f.seek(leapfld,1)
 
+    def _check_data(self, scannum=None, ivar=None, tind=None):
+        if self._islinearscan:
+            if scannum is None:
+                scannum = 1
+            if scannum != self._scannum:
+                self._scannum = scannum
+                self._get_parent_parameters(scannum)
+                self._set_path(scannum)
+                self._read_time_array()
+        if ivar is not None:
+            self._ivar = ivar
+        if tind is None:
+            tind = -1
+        self._adjust_tind(tind)
+        self._get_data()
+            
     def _adjust_tind(self, tind):
         # load data based on tind and _ivar
         if isinstance(tind, (tuple,list,np.ndarray)):
@@ -150,7 +154,6 @@ class _DataABC(object):
         if self.nky0>1:
             data_xyz = np.real(np.fft.ifft2(data_kxkyz_f, axes=[0,1]))
             self._xyimage = data_xyz[:,:,self.nz0//2]
-#            self._xzimage = np.sum(data_xyz, axis=1)
             self._xzimage = data_xyz[:,self.nky0//2,:]
         else:
             data_kxz_f = data_kxkyz_f[:,0,:]
@@ -179,13 +182,13 @@ class _DataABC(object):
                                  self.ballooning[imid-1:0:-1]))
         sumsig = np.mean(np.abs(self.ballooning[imid+1:] + \
                                 self.ballooning[imid-1:0:-1]))
-        self.parity = np.mean(np.divide(sumsig-diffsig,sumsig+diffsig))
+        self.parity = np.mean(np.divide(sumsig-diffsig,sumsig+diffsig+1e-12))
         nz4 = self.nz0//2
         diffsig2 = np.mean(np.abs(self.ballooning[imid+1:imid+1+nz4] - \
                                   self.ballooning[imid-1:imid-1-nz4:-1]))
         sumsig2 = np.mean(np.abs(self.ballooning[imid+1:imid+1+nz4] + \
                                  self.ballooning[imid-1:imid-1-nz4:-1]))
-        self.parity2 = np.mean(np.divide(sumsig2-diffsig2,sumsig2+diffsig2))
+        self.parity2 = np.mean(np.divide(sumsig2-diffsig2,sumsig2+diffsig2+1e-12))
         taillength = np.int(np.floor(0.025*paragridsize))
         amode = np.abs(self.ballooning)
         tails = np.concatenate((amode[0:taillength+1], amode[-(taillength+1):]))
@@ -303,9 +306,9 @@ class Field(_DataABC):
         self.path = None
         super().__init__(ivar=field_names.index(field), parent=parent)
         
-    def _set_subclass_path(self):
-        if self._islinearscan:
-            self.path = self._parent.path / 'field_{:04d}'.format(self._scannum)
+    def _set_path(self, scannum=None):
+        if self._islinearscan and scannum is not None:
+            self.path = self._parent.path / 'field_{:04d}'.format(scannum)
         else:
             self.path = self._parent.path / 'field.dat'
             
@@ -321,6 +324,10 @@ class Moment(_DataABC):
         self.path = None
         self._imoment = None
         self.species = species
+        self.gamma_es = None
+        self.gamma_em = None
+        self.q_es = None
+        self.q_em = None
         self._set_moment()
         super().__init__(ivar=self._imoment, parent=parent)
         
@@ -328,9 +335,9 @@ class Moment(_DataABC):
         self._imoment = moment
         self.varname = self.species[0:3] + ' ' + mom_names[moment]
         
-    def _set_subclass_path(self):
-        if self._islinearscan:
-            self.path = self._parent.path / 'mom_{}_{:04d}'.format(self.species, self._scannum)
+    def _set_path(self, scannum=None):
+        if self._islinearscan and scannum is not None:
+            self.path = self._parent.path / 'mom_{}_{:04d}'.format(self.species, scannum)
         else:
             self.path = self._parent.path / 'mom_{}.dat'.format(self.species)
 
@@ -339,3 +346,117 @@ class Moment(_DataABC):
             self._set_moment(moment=moment)
         super().plot_mode(scannum=scannum, ivar=moment, tind=tind)
         
+    def calc_fluxes(self, scannum=None, tind=None):
+        if tind is None:
+            tind =np.arange(-1,-8*4,-4)
+        else:
+            self._adjust_tind(tind)
+            tind = np.copy(self.tind)
+        self._check_data(tind=tind)
+        self._parent.phi._check_data(tind=tind)
+        phi = np.copy(self._parent.phi.data)
+        ky_tile = np.broadcast_to(self.kygrid.reshape((1,self.nky0,1,1)), 
+                                  [self.nx0, self.nky0, self.nz0, tind.size])
+        vex = -1j * ky_tile * phi
+#        vex = ky_tile * phi
+        self._parent.apar._check_data(tind=tind)
+        apar = np.copy(self._parent.apar.data)
+        bx = 1j * ky_tile * apar
+#        bx = ky_tile * apar
+        moms = []
+        for imom in range(6):
+            self._check_data(ivar=imom, tind=tind)
+            moms.append(np.copy(self.data))
+        nref = self._processed_parameters['nref']
+        Tref = self._processed_parameters['Tref']
+        self.fluxes = np.empty_like(np.broadcast_to(vex[...,np.newaxis], 
+                                    (self.nx0,self.nky0,self.nz0,self.tind.size,4)))
+        self.flux_angles = np.empty_like(self.fluxes.real)
+        self.flux_names = ['gamma_es', 'gamma_em', 'q_es', 'q_em']
+        # gamma ES
+        self.fluxes[...,0] = np.conj(moms[0])*vex
+        self.flux_angles[...,0] = np.angle(np.conj(moms[0])*phi)/np.pi
+        # gamma EM
+        self.fluxes[...,1] = np.conj(moms[1])*bx
+        self.flux_angles[...,1] = np.angle(np.conj(moms[1])*apar)/np.pi
+        # q ES
+        tmp1 = 1.5*moms[0]*Tref + 0.5*moms[1]*nref + moms[2]*nref
+        self.fluxes[...,2] = np.conj(tmp1) * vex
+        self.flux_angles[...,2] = np.angle(np.conj(tmp1)*phi)/np.pi
+        # q EM
+        tmp2 = moms[3] + moms[4]
+        self.fluxes[...,3] = np.conj(tmp2) * bx
+        self.flux_angles[...,3] = np.angle(np.conj(tmp2)*apar)/np.pi
+#        self.flux_angles = np.angle(self.fluxes)/np.pi
+        
+    def plot_fluxes(self):
+#        # 2D plot fluxes vs ky, time
+#        plt.figure(figsize=(8,6))
+#        for i in range(4):
+#            yspec = np.sum(np.real(self.fluxes[...,i]), (0,2)) / self.nz0
+#            yspeclim = yspec.max()/1e4
+#            yspec[yspec<yspeclim] = yspeclim
+#            plt.subplot(2,2,i+1)
+#            plt.contourf(self.time[self.tind], 
+#                         self.kygrid[1:], 
+#                         10*np.log10(yspec[1:,:]))
+#            plt.xlabel('time (a/c_s)')
+#            plt.ylabel('ky * rho_s')
+#            plt.title(self.flux_names[i])
+#            plt.colorbar()
+#        plt.tight_layout()
+#        # plot time-avg. fluxes vs ky
+#        plt.figure(figsize=(8,6))
+#        for i in range(4):
+#            yspec_t = np.sum(np.real(self.fluxes[...,i]), (0,2)) / self.nz0
+#            yspeclim = np.max([yspec_t.max()/1e4, 1e-16])
+#            yspec_t[yspec_t<yspeclim] = yspeclim
+#            yspec_mean = np.mean(yspec_t[1:,:],1)
+#            yspec_std = np.std(10*np.log10(yspec_t[1:,:]),1)
+#            plt.subplot(2,2,i+1)
+#            plt.errorbar(self.kygrid[1:], 10*np.log10(yspec_mean), yerr=yspec_std)
+#            plt.xlabel('ky * rho_s')
+#            plt.ylabel(self.flux_names[i])
+#            plt.title(self._parent.label)
+#        plt.tight_layout()
+        # overplot all flux y-spectra
+        plt.figure()
+        yspec_yf = np.sum(np.real(self.fluxes), (0,2)) / self.nz0
+        yspec_yf_neg = -np.copy(yspec_yf)
+        yspec_yf[yspec_yf<1e-16] = np.nan
+        yspec_yf_neg[yspec_yf_neg<1e-16] = np.nan
+        for i in range(4):
+            if np.any(np.isfinite(yspec_yf[1:,:,i])):
+                plt.errorbar(self.kygrid[1:],
+                             10*np.log10(np.nanmean(yspec_yf[1:,:,i],1)),
+                             yerr=np.nanstd(10*np.log10(yspec_yf[1:,:,i]),1),
+                             label=self.flux_names[i])
+            if np.any(np.isfinite(yspec_yf_neg[1:,:,i])):
+                plt.errorbar(self.kygrid[1:],
+                             10*np.log10(np.nanmean(yspec_yf_neg[1:,:,i],1)),
+                             yerr=np.nanstd(10*np.log10(yspec_yf_neg[1:,:,i]),1),
+                             label=self.flux_names[i]+' (pinch)')
+        plt.xlabel('ky * rho_s')
+        plt.ylabel('gamma/gamma_gb, q/q_gb')
+        plt.legend()
+        plt.title(self._parent.label)
+        plt.tight_layout()
+        # plot 2D histogram of cross-phases vs ky, weighted by flux
+        nbins = 80
+        abins = np.linspace(-1,1,nbins+1)
+        plt.figure(figsize=(8,6))
+        for i in range(4):
+            counts = np.empty((self.nky0-1, nbins))
+            for iky in range(self.nky0-1):
+                counts[iky,:],_ = np.histogram(
+                    self.flux_angles[:,iky+1,:,:,i].flatten(),
+                    bins=abins,
+                    weights=np.abs(self.fluxes[:,iky+1,:,:,i].flatten()),
+                    density=True)
+            plt.subplot(2,2,i+1)
+            plt.contourf((abins[0:-1]+abins[1:])/2, self.kygrid[1:], counts)
+            plt.xlabel('cross-phase (rad/pi)')
+            plt.ylabel('ky * rho_s')
+            plt.title(self._parent.label+' | '+self.flux_names[i])
+            plt.colorbar()
+        plt.tight_layout()
