@@ -431,26 +431,46 @@ class GeneLinearScan(_GeneBaseClass):
                         raise ValueError
                     output['ky'][i] = eval(match['ky'])
                     omi = eval(match['omi'])
-                    if omi != 0:
+                    omr = eval(match['omr'])
+                if omi != 0:
+                    if omi>0:
                         output['omi'][i] = omi
-                        output['omr'][i] = eval(match['omr'])
-            if not hasattr(self, 'apar'): continue
-            self.apar(scannum=i+1)
-            output['apar-parity'][i] = self.apar.parity2
-            output['apar-tailsize'][i] = self.apar.tailsize
-            output['apar-gridosc'][i] = self.apar.gridosc
-            self.apar(scannum=i+1, tind=[-2,-1])
-            istep = self.apar._processed_parameters['istep_field']
-            dt = self.apar._processed_parameters['dt_max']
-            data_f2 = self.apar.data[...,1]
-            data_f2[data_f2==0] = 1e-16
-            data_f1 = self.apar.data[...,0]
-            data_f1[data_f1==0] = 1e-16
-            delapar = np.log(data_f2/data_f1) / (dt*istep)
-            weights = np.abs(data_f1)
-            om_av = np.sum(delapar*weights) / weights.sum()
-            output['apar-omi'][i] = np.real(om_av)
-            output['apar-omr'][i] = np.imag(om_av)
+                        output['omr'][i] = omr
+                else:
+                    # calc omi/omr from 'field' output file
+                    self.phi(scannum=i+1, tind=[-2,-1])
+                    istep = self.phi._processed_parameters['istep_field']
+                    if istep<=400:
+                        dt = self.phi._processed_parameters['dt_max']
+                        data_f2 = self.phi.data[...,1]
+                        data_f2[data_f2==0] = 1e-16
+                        data_f1 = self.phi.data[...,0]
+                        data_f1[data_f1==0] = 1e-16
+                        del_field = np.log(data_f2/data_f1) / (dt*istep)
+                        weights = np.abs(data_f1)
+                        om_av = np.sum(del_field*weights) / weights.sum()
+                        if np.real(om_av)>0:
+                            output['omi'][i] = np.real(om_av)
+                            output['omr'][i] = np.imag(om_av)
+            if hasattr(self, 'apar'):
+                self.apar(scannum=i+1)
+                output['apar-parity'][i] = self.apar.parity2
+                output['apar-tailsize'][i] = self.apar.tailsize
+                output['apar-gridosc'][i] = self.apar.gridosc
+                self.apar(scannum=i+1, tind=[-2,-1])
+                istep = self.apar._processed_parameters['istep_field']
+                if istep<=400:
+                    dt = self.apar._processed_parameters['dt_max']
+                    data_f2 = self.apar.data[...,1]
+                    data_f2[data_f2==0] = 1e-16
+                    data_f1 = self.apar.data[...,0]
+                    data_f1[data_f1==0] = 1e-16
+                    del_field = np.log(data_f2/data_f1) / (dt*istep)
+                    weights = np.abs(data_f1)
+                    om_av = np.sum(del_field*weights) / weights.sum()
+                    if np.real(om_av)>0:
+                        output['apar-omi'][i] = np.real(om_av)
+                        output['apar-omr'][i] = np.imag(om_av)
         self.omega = output
 
     def plot_omega(self, xscale='linear', gammascale='linear', oplot=[],
@@ -462,12 +482,15 @@ class GeneLinearScan(_GeneBaseClass):
         else:
             xdata = np.arange(self.nscans)+1
         axes[0].plot(xdata, data['omi'], '-x', color='C0', label=self.label)
-        axes[0].plot(xdata, data['apar-omi'], '--o', color='C0', label=self.label)
+        axes[0].plot(xdata, data['apar-omi'], '--+', color='C0', label=self.label)
         axes[1].plot(xdata, data['omr'], '-x', color='C0', label=self.label)
-        axes[1].plot(xdata, data['apar-omr'], '--o', color='C0', label=self.label)
+        axes[1].plot(xdata, data['apar-omr'], '--+', color='C0', label=self.label)
         axes[2].plot(xdata, data['parity'], '-x', color='C0', label=self.label)
+        axes[2].plot(xdata, data['apar-parity'], '--+', color='C0', label=self.label)
         axes[3].plot(xdata, data['tailsize'], '-x', color='C0', label=self.label)
+        axes[3].plot(xdata, data['apar-tailsize'], '--+', color='C0', label=self.label)
         axes[4].plot(xdata, data['gridosc'], '-x', color='C0', label=self.label)
+        axes[4].plot(xdata, data['apar-gridosc'], '--+', color='C0', label=self.label)
         if oplot:
             if not isinstance(oplot, (list,tuple)):
                 oplot = [oplot]
@@ -485,23 +508,23 @@ class GeneLinearScan(_GeneBaseClass):
                     xdata = np.arange(sim.nscans)+1
                 axes[0].plot(xdata, data['omi'], '-x', 
                     label=sim.label, color=color)
-                axes[0].plot(xdata, data['apar-omi'], '--o', 
+                axes[0].plot(xdata, data['apar-omi'], '--+', 
                     label=sim.label, color=color)
                 axes[1].plot(xdata, data['omr'], '-x', 
                     label=sim.label, color=color)
-                axes[1].plot(xdata, data['apar-omr'], '--o', 
+                axes[1].plot(xdata, data['apar-omr'], '--+', 
                     label=sim.label, color=color)
                 axes[2].plot(xdata, data['parity'], '-x', 
                     label=sim.label, color=color)
-                axes[2].plot(xdata, data['apar-parity'], '--o', 
+                axes[2].plot(xdata, data['apar-parity'], '--+', 
                     label=sim.label, color=color)
                 axes[3].plot(xdata, data['tailsize'], '-x', 
                     label=sim.label, color=color)
-                axes[3].plot(xdata, data['apar-tailsize'], '--o', 
+                axes[3].plot(xdata, data['apar-tailsize'], '--+', 
                     label=sim.label, color=color)
                 axes[4].plot(xdata, data['gridosc'], '-x',
                     label=sim.label, color=color)
-                axes[4].plot(xdata, data['apar-gridosc'], '--o', 
+                axes[4].plot(xdata, data['apar-gridosc'], '--+', 
                     label=sim.label, color=color)
         axes[0].set_title('/'.join(self.path.parts[-3:]))
         axes[0].set_ylabel('gamma/(c_s/a)')
