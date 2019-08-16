@@ -118,12 +118,12 @@ class _GeneBaseClass(object):
         # only called by Field or Moment attributes
         pfile = utils.validate_path(paramsfile)
         params = {'species':[],
-                  'Bref':1.0,
-                  'Tref':1.0,
-                  'nref':1.0,
-                  'mref':2.0,
-                  'Lref':1.0,
-                  'minor_r':1.0}
+                  'Bref':1.0, # T
+                  'Tref':1.0, # keV
+                  'nref':1.0, # 10**19/m**3
+                  'mref':2.0, # amu
+                  'Lref':1.0, # m
+                  'minor_r':1.0} # in units of Lref
         with pfile.open('r') as f:
             for line in f:
                 if utils.re_amp.match(line) or \
@@ -147,17 +147,19 @@ class _GeneBaseClass(object):
                     params[key] = eval(value)
                 except:
                     params[key] = value
-        e = 1.6022e-19 # C
-        k = 1.3807e-23
+        e = 1.6022e-19  # C
+#        k_B = 1.3807e-23  # J/K
         proton_mass = 1.6726e-27 # kg
-        params['m_kg'] = proton_mass * params['mref'] # ref. mass
-        params['T_joules'] = e * 1e3*params['Tref'] # J
-        params['c_s'] = np.sqrt(params['T_joules'] / params['m_kg'])
-        params['Omega'] = e*params['Bref'] / params['m_kg']
-        params['rho'] = params['c_s'] / params['Omega']
-        params['rhostar'] = params['rho'] / params['Lref']
+        params['m_kg'] = proton_mass * params['mref']  # ref. mass in kg
+        params['T_joules'] = e * 1e3*params['Tref']  # J
+        params['c_s'] = np.sqrt(params['T_joules'] / params['m_kg'])  # m/s
+        params['omega_ref'] = params['c_s'] / params['Lref']  # rad/s
+        params['Omega'] = e*params['Bref'] / params['m_kg']  # rad/s
+        params['rho'] = params['c_s'] / params['Omega'] # m
+        params['rhostar'] = params['rho'] / params['Lref'] # dimensionless
+        # m/s * 10**19/m**3 = 10**19/(m**2 s)
         params['gam_gb'] = params['c_s'] * params['nref'] * params['rhostar']**2
-        params['q_gb'] = params['gam_gb'] * 1e3*params['Tref'] * e/k
+        params['q_gb'] = 1e19*params['gam_gb'] * params['T_joules']  # W/m**2
         return params
 
     def _read_nrgdata(self, file):
@@ -291,9 +293,14 @@ class GeneNonlinear(_GeneBaseClass):
                 plt.plot(time[t1:], value[t1:], label=label)
             for iax in [0,1]:
                 plt.sca(ax[iax,i])
-                plt.title(title)
                 plt.legend(loc='upper left')
-                plt.xlabel('time')
+                plt.xlabel('time (a/c_s)')
+                plt.title(title)
+                if iax==1:
+                    plt.ylabel('Gamma_gb, Q_gb')
+                    q_gb = self.phi._processed_parameters['q_gb']
+                    plt.annotate('Q_gb = {:.1f} kW/m**2'.format(q_gb/1e3),
+                                 [0.7,0.7], xycoords='axes fraction')
         plt.tight_layout()
 
     def plot_energy(self):
@@ -315,10 +322,6 @@ def concat_nrg(inputs):
     if isinstance(inputs[0], GeneNonlinear):
         sims = inputs
     else:
-#        sims = []
-#        for d in inputs:
-#            print(d)
-#            sims.append(GeneNonlinear(d))
         sims = [GeneNonlinear(d) for d in inputs]
     sim = sims.pop(0)
     if not isinstance(sim, GeneNonlinear):
@@ -335,7 +338,6 @@ def concat_nrg(inputs):
     fig, ax = plt.subplots(ncols=len(species), nrows=2, figsize=(9,5))
     ax = ax.reshape((2,1))
     for i,sp in enumerate(species):
-#        nrg = self.nrg[sp]
         for key,value in nrg[sp].items():
             if key.lower().startswith('q') or key.lower().startswith('gam'):
                 plt.sca(ax[1,i])
@@ -346,8 +348,12 @@ def concat_nrg(inputs):
         for iax in [0,1]:
             plt.sca(ax[iax,i])
             plt.legend(loc='upper left')
-            plt.xlabel('time')
-            plt.xlim(20,None)
+            plt.xlabel('time (a/c_s)')
+            if iax==1:
+                plt.ylabel('Gamma_gb, Q_gb')
+                q_gb = sims[0].phi._processed_parameters['q_gb']
+                plt.annotate('Q_gb = {:.1f} kW/m**2'.format(q_gb/1e3),
+                             [0.7,0.7], xycoords='axes fraction')
     plt.sca(ax[0,0])
     plt.title(sims[-1].label)
     plt.tight_layout()
@@ -415,9 +421,14 @@ class GeneLinearScan(_GeneBaseClass):
                   'apar-parity':np.empty(nscans)*np.NaN,
                   'apar-tailsize':np.empty(nscans)*np.NaN,
                   'apar-gridosc':np.empty(nscans)*np.NaN,
+                  'omega-ref':None,
+                  'rho-ref':None,
                   }
         for i in np.arange(nscans):
             self.phi(scannum=i+1)
+            if i==0:
+                output['omega-ref'] = self.phi._processed_parameters['omega_ref']/(2*np.pi)/1e3
+                output['rho-ref'] = self.phi._processed_parameters['rho']*1e2
             output['parity'][i] = self.phi.parity2
             output['tailsize'][i] = self.phi.tailsize
             output['gridosc'][i] = self.phi.gridosc
@@ -474,7 +485,8 @@ class GeneLinearScan(_GeneBaseClass):
         self.omega = output
 
     def plot_omega(self, xscale='linear', gammascale='linear', oplot=[],
-                   gamma_lim=None, ky_lim=None, oplot_color=[]):
+                   gamma_lim=None, ky_lim=None, oplot_color=[],
+                   legend=False, apar=False):
         fig, axes = plt.subplots(nrows=5, figsize=(6,6.75), sharex=True)
         data = self.omega
         if self.scanlog and self.scandims==1:
@@ -482,15 +494,16 @@ class GeneLinearScan(_GeneBaseClass):
         else:
             xdata = np.arange(self.nscans)+1
         axes[0].plot(xdata, data['omi'], '-x', color='C0', label=self.label)
-        axes[0].plot(xdata, data['apar-omi'], '--+', color='C0', label=self.label)
         axes[1].plot(xdata, data['omr'], '-x', color='C0', label=self.label)
-        axes[1].plot(xdata, data['apar-omr'], '--+', color='C0', label=self.label)
         axes[2].plot(xdata, data['parity'], '-x', color='C0', label=self.label)
-        axes[2].plot(xdata, data['apar-parity'], '--+', color='C0', label=self.label)
         axes[3].plot(xdata, data['tailsize'], '-x', color='C0', label=self.label)
-        axes[3].plot(xdata, data['apar-tailsize'], '--+', color='C0', label=self.label)
         axes[4].plot(xdata, data['gridosc'], '-x', color='C0', label=self.label)
-        axes[4].plot(xdata, data['apar-gridosc'], '--+', color='C0', label=self.label)
+        if apar:
+            axes[0].plot(xdata, data['apar-omi'], '--+', color='C0', label=self.label)
+            axes[1].plot(xdata, data['apar-omr'], '--+', color='C0', label=self.label)
+            axes[2].plot(xdata, data['apar-parity'], '--+', color='C0', label=self.label)
+            axes[3].plot(xdata, data['apar-tailsize'], '--+', color='C0', label=self.label)
+            axes[4].plot(xdata, data['apar-gridosc'], '--+', color='C0', label=self.label)
         if oplot:
             if not isinstance(oplot, (list,tuple)):
                 oplot = [oplot]
@@ -508,24 +521,25 @@ class GeneLinearScan(_GeneBaseClass):
                     xdata = np.arange(sim.nscans)+1
                 axes[0].plot(xdata, data['omi'], '-x', 
                     label=sim.label, color=color)
-                axes[0].plot(xdata, data['apar-omi'], '--+', 
-                    label=sim.label, color=color)
                 axes[1].plot(xdata, data['omr'], '-x', 
-                    label=sim.label, color=color)
-                axes[1].plot(xdata, data['apar-omr'], '--+', 
                     label=sim.label, color=color)
                 axes[2].plot(xdata, data['parity'], '-x', 
                     label=sim.label, color=color)
-                axes[2].plot(xdata, data['apar-parity'], '--+', 
-                    label=sim.label, color=color)
                 axes[3].plot(xdata, data['tailsize'], '-x', 
-                    label=sim.label, color=color)
-                axes[3].plot(xdata, data['apar-tailsize'], '--+', 
                     label=sim.label, color=color)
                 axes[4].plot(xdata, data['gridosc'], '-x',
                     label=sim.label, color=color)
-                axes[4].plot(xdata, data['apar-gridosc'], '--+', 
-                    label=sim.label, color=color)
+                if apar:
+                    axes[0].plot(xdata, data['apar-omi'], '--+', 
+                        label=sim.label, color=color)
+                    axes[1].plot(xdata, data['apar-omr'], '--+', 
+                        label=sim.label, color=color)
+                    axes[2].plot(xdata, data['apar-parity'], '--+', 
+                        label=sim.label, color=color)
+                    axes[3].plot(xdata, data['apar-tailsize'], '--+', 
+                        label=sim.label, color=color)
+                    axes[4].plot(xdata, data['apar-gridosc'], '--+', 
+                        label=sim.label, color=color)
         axes[0].set_title('/'.join(self.path.parts[-3:]))
         axes[0].set_ylabel('gamma/(c_s/a)')
         axes[0].set_yscale(gammascale)
@@ -538,6 +552,10 @@ class GeneLinearScan(_GeneBaseClass):
             axes[0].set_xlim(ky_lim)
         axes[1].set_ylabel('omega/(c_s/a)')
         axes[1].set_ylim()
+        om_text = 'c_s/a = {:.1f} kHz'.format(self.omega['omega-ref'])
+        axes[1].annotate(om_text, [0.7,0.7], xycoords='axes fraction')
+        rho_text = 'rho_s = {:.2f} cm'.format(self.omega['rho-ref'])
+        axes[1].annotate(rho_text, [0.7,0.5], xycoords='axes fraction')
         axes[2].set_ylim(-1,1)
         axes[2].set_ylabel('parity')
         axes[3].set_yscale('log')
@@ -553,8 +571,7 @@ class GeneLinearScan(_GeneBaseClass):
         for ax in axes:
             ax.tick_params('both', reset=True, top=False, right=False)
             ax.set_xscale(xscale)
-#            if len(ax.get_lines())>=2:
-#                ax.legend()
+            if legend: ax.legend()
         fig.tight_layout()
 
     def plot_nsq(self, species=None, save=False, filename=''):
