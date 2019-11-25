@@ -27,6 +27,8 @@ re_scan = re.compile(r'!scan')
 re_scanlogheader = re.compile(r'^#Run\s+\|\s+(?P<param>[!a-zA-Z0-9_]+)\s')
 re_scanlog = re.compile(r'^(?P<run>[0-9]+)\s+\|\s+(?P<value>[0-9.e+-]+)\s+\|')
 re_omegafile = re.compile(r'^\s+(?P<ky>[0-9.Na-]+)\s+(?P<omi>[0-9.Na-]+)\s+(?P<omr>[0-9.Na-]+)')
+re_miller1 = re.compile(r'^(?P<name>[0a-zA-Z_]+)\s*=\s+(?P<value>[0-9E.+-]+)')
+re_miller2 = re.compile(r'^'+''.join([r'\s+([0-9E.+-]+)' for i in range(16)]))
 
 eps = np.finfo(np.float).eps
 

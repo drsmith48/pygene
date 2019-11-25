@@ -64,17 +64,19 @@ class _GeneBaseClass(object):
                             value = 'True'
                         if value in ['f','.f.','false','.false.']:
                             value = 'False'
+                        if 'scanlist' in value:
+                            value = value.rsplit()[0]
                         try:
                             self.params[pattern] = eval(value)
                         except:
                             self.params[pattern] = value
                         break
-            get_value('n_spec')
             get_value('beta', 0.0)
             get_value('apar', False)
             get_value('bpar', False)
             get_value('nonlinear')
             get_value('nky0')
+            get_value('nz0')
             get_value('scan_dims')
             get_value('istep_omega')
             get_value('dt_max')
@@ -84,8 +86,6 @@ class _GeneBaseClass(object):
                     match = utils.re_item.match(line)
                     spec_name = eval(match.group('value'))
                     self.species.append(spec_name)
-                    if len(self.species) == self.params['n_spec']:
-                        break
         # assemble fields
         self.fields.append('phi')
         if self.params['beta']:
@@ -99,20 +99,23 @@ class _GeneBaseClass(object):
                            self.params['scan_dims'] is None
         self._islinearscan = self.params['nonlinear'] is False and \
                             self.params['nky0']==1 and \
-                            self.params['scan_dims'] > 0
+                            self.params['scan_dims']
         assert self._isnonlinear != self._islinearscan
-        
+
     def _populate_fields_moments_vsp(self):
         # set attributes for fields and species
         for field in self.fields:
             setattr(self, field, Field(field=field, parent=self))
         for species in self.species:
-            setattr(self, species, Moment(species=species, parent=self))
+            try:
+                setattr(self, species, Moment(species=species, parent=self))
+            except:
+                self.species.remove(species)
         self.vsp = Vspace(parent=self)
-        
+
     def _get_processed_parameters(self, paramsfile=None):
         """
-        Used by fields/moments to get post-processed GENE parameters 
+        Used by fields/moments to get post-processed GENE parameters
         from parameters.dat or parameters_0003
         """
         # only called by Field or Moment attributes
@@ -161,6 +164,62 @@ class _GeneBaseClass(object):
         params['gam_gb'] = params['c_s'] * params['nref'] * params['rhostar']**2
         params['q_gb'] = 1e19*params['gam_gb'] * params['T_joules']  # W/m**2
         return params
+
+    def _calc_curvature(self, file):
+        file = utils.validate_path(file)
+        miller = np.empty((16,self.params['nz0']))
+        with file.open('rt') as f:
+            for line in f:
+                line = line.rstrip()
+                if (line=='') or (line[0]=='&') or (line[0:4]=='magn'):
+                    continue
+                if line[0]=='/':
+                    break
+                rx = utils.re_miller1.match(line)
+                if rx['name']=='Cxy':
+                    cxy = float(rx['value'])
+                if rx['name']=='gridpoints':
+                    assert(eval(rx['value'])==self.params['nz0'])
+            icount = 0
+            while True:
+                line = f.readline()
+                line = line.rstrip()
+                if line=='': break
+                icount += 1
+                rx = utils.re_miller2.match(line)
+                miller[:,icount-1] = np.array([float(val) for val in rx.groups()])
+            assert(icount==self.params['nz0'])
+        gxx = miller[0,:]
+        gxy = miller[1,:]
+        gxz = miller[2,:]
+        gyy = miller[3,:]
+        gyz = miller[4,:]
+#        gzz = miller[5,:]
+        dBdx = miller[7,:]
+        dBdy = miller[8,:]
+        dBdz = miller[9,:]
+        gamma1 = gxx*gyy - gxy**2
+        gamma2 = gxx*gyz - gxy*gxz
+        gamma3 = gxy*gyz - gyy*gxz
+        bcurv = np.empty((2,self.params['nz0']))
+        bcurv[0,:] = (-dBdy - gamma2/gamma1 * dBdz) / cxy
+        bcurv[1,:] = ( dBdx - gamma3/gamma1 * dBdz) / cxy
+#        bcurv[2,:] = ( dBdy + gamma2/gamma1 * dBdx) / cxy
+        return bcurv
+
+    def plot_curvature(self, bcurv):
+        nz0 = self.params['nz0']
+        zgrid = np.linspace(-1, 1-2/nz0, nz0)
+        xlabels = ['Kx','Ky']
+        plt.figure(figsize=[6.6,2.9])
+        for i in range(2):
+            plt.subplot(1,2,i+1)
+            plt.plot(zgrid, bcurv[i,:])
+            plt.axhline(np.mean(bcurv[i,:]), linestyle='--')
+            plt.xlabel('z (rad/pi)')
+            plt.ylabel(xlabels[i])
+            plt.title(self.label)
+        plt.tight_layout()
 
     def _read_nrgdata(self, file):
         """
@@ -240,7 +299,7 @@ class GeneNonlinear(_GeneBaseClass):
     """
     Nonelinear simulation (no scan)
     """
-    
+
     def __init__(self, path=None, label=None):
         super().__init__(path=path, label=label)
         self._populate_fields_moments_vsp()
@@ -275,7 +334,7 @@ class GeneNonlinear(_GeneBaseClass):
                        'deltae':data[:,13],
                        'netdrive':np.sum(data[:,3:12],axis=1),
                        'grossdrive':np.sum(data[:,3:5],axis=1)}
-    
+
     def plot_nrg(self):
         time = self.nrg['time']
         t1 = np.searchsorted(time, 1.0)
@@ -316,6 +375,10 @@ class GeneNonlinear(_GeneBaseClass):
         plt.xlabel('time')
         plt.title(self.label)
         plt.legend()
+
+    def plot_curvature(self):
+        bcurv = self._calc_curvature(self.path/'miller.dat')
+        super().plot_curvature(bcurv)
 
 
 def concat_nrg(inputs):
@@ -362,14 +425,14 @@ def concat_nrg(inputs):
 class GeneLinearScan(_GeneBaseClass):
     """
     'scanscript' run of GENE linear IV simulations
-    
+
     Assumes fields and species are identical for all runs.
     Scan can be in 1 or more parameters.
     """
-    
+
     def __init__(self, path=None, label=None):
         super().__init__(path=path, label=label)
-        
+
         if not (getattr(self, 'params', None) and getattr(self, 'path', None)):
             raise AttributeError()
 
@@ -405,7 +468,7 @@ class GeneLinearScan(_GeneBaseClass):
                     value = float(rx.group('value'))
                     paramvalues = np.append(paramvalues, value)
         if paramvalues.size != 0:
-            self.scanlog = {'paramname':paramname, 
+            self.scanlog = {'paramname':paramname,
                             'paramvalues':paramvalues}
 
     def _read_omega(self):
@@ -425,7 +488,10 @@ class GeneLinearScan(_GeneBaseClass):
                   'rho-ref':None,
                   }
         for i in np.arange(nscans):
-            self.phi(scannum=i+1)
+            try:
+                self.phi(scannum=i+1)
+            except:
+                continue
             if i==0:
                 output['omega-ref'] = self.phi._processed_parameters['omega_ref']/(2*np.pi)/1e3
                 output['rho-ref'] = self.phi._processed_parameters['rho']*1e2
@@ -437,12 +503,13 @@ class GeneLinearScan(_GeneBaseClass):
                 with omega_file.open() as f:
                     s = f.readline()
                     match = utils.re_omegafile.match(s)
-                    if not match or len(match.groups()) != 3:
+                    if match and len(match.groups()) == 3:
+                        output['ky'][i] = eval(match['ky'])
+                        omi = eval(match['omi'])
+                        omr = eval(match['omr'])
+                    else:
                         print('bad omega file: {}'.format(omega_file.as_posix()))
-                        raise ValueError
-                    output['ky'][i] = eval(match['ky'])
-                    omi = eval(match['omi'])
-                    omr = eval(match['omr'])
+                        omi = omr = 0
                 if omi != 0:
                     if omi>0:
                         output['omi'][i] = omi
@@ -490,7 +557,10 @@ class GeneLinearScan(_GeneBaseClass):
         fig, axes = plt.subplots(nrows=5, figsize=(6,6.75), sharex=True)
         data = self.omega
         if self.scanlog and self.scandims==1:
-            xdata = self.scanlog['paramvalues']
+            if self.scanlog['paramname']=='n0_global':
+                xdata = data['ky']
+            else:
+                xdata = self.scanlog['paramvalues']
         else:
             xdata = np.arange(self.nscans)+1
         axes[0].plot(xdata, data['omi'], '-x', color='C0', label=self.label)
@@ -516,29 +586,32 @@ class GeneLinearScan(_GeneBaseClass):
                     sim._read_omega()
                 data = sim.omega
                 if sim.scanlog and sim.scandims==1:
-                    xdata = sim.scanlog['paramvalues']
+                    if sim.scanlog['paramname']=='n0_global':
+                        xdata = data['ky']
+                    else:
+                        xdata = sim.scanlog['paramvalues']
                 else:
                     xdata = np.arange(sim.nscans)+1
-                axes[0].plot(xdata, data['omi'], '-x', 
+                axes[0].plot(xdata, data['omi'], '-x',
                     label=sim.label, color=color)
-                axes[1].plot(xdata, data['omr'], '-x', 
+                axes[1].plot(xdata, data['omr'], '-x',
                     label=sim.label, color=color)
-                axes[2].plot(xdata, data['parity'], '-x', 
+                axes[2].plot(xdata, data['parity'], '-x',
                     label=sim.label, color=color)
-                axes[3].plot(xdata, data['tailsize'], '-x', 
+                axes[3].plot(xdata, data['tailsize'], '-x',
                     label=sim.label, color=color)
                 axes[4].plot(xdata, data['gridosc'], '-x',
                     label=sim.label, color=color)
                 if apar:
-                    axes[0].plot(xdata, data['apar-omi'], '--+', 
+                    axes[0].plot(xdata, data['apar-omi'], '--+',
                         label=sim.label, color=color)
-                    axes[1].plot(xdata, data['apar-omr'], '--+', 
+                    axes[1].plot(xdata, data['apar-omr'], '--+',
                         label=sim.label, color=color)
-                    axes[2].plot(xdata, data['apar-parity'], '--+', 
+                    axes[2].plot(xdata, data['apar-parity'], '--+',
                         label=sim.label, color=color)
-                    axes[3].plot(xdata, data['apar-tailsize'], '--+', 
+                    axes[3].plot(xdata, data['apar-tailsize'], '--+',
                         label=sim.label, color=color)
-                    axes[4].plot(xdata, data['apar-gridosc'], '--+', 
+                    axes[4].plot(xdata, data['apar-gridosc'], '--+',
                         label=sim.label, color=color)
         axes[0].set_title('/'.join(self.path.parts[-3:]))
         axes[0].set_ylabel('gamma/(c_s/a)')
@@ -592,7 +665,7 @@ class GeneLinearScan(_GeneBaseClass):
         nlines = 4
         nax = nruns//nlines + int(bool(nruns%nlines))
         ncol = nax//2 + nax%2
-        fig, axes = plt.subplots(nrows=2, ncols=ncol, figsize=(12,5), 
+        fig, axes = plt.subplots(nrows=2, ncols=ncol, figsize=(12,5),
                                  sharex=True, sharey=True)
         i = 0
         for ax in axes.flat:
@@ -614,3 +687,22 @@ class GeneLinearScan(_GeneBaseClass):
             ax.set_yscale('log')
             ax.set_title('/'.join(self.path.parts[-3:]))
         fig.tight_layout()
+
+    def plot_curvature(self, scannum=1):
+        filename = 'miller_{:04d}'.format(scannum)
+        bcurv = self._calc_curvature(self.path/filename)
+        super().plot_curvature(bcurv)
+
+    def plot_field_ratios(self):
+        nscans = self.nscans
+        maxphi = np.empty(nscans)
+        maxapar = np.empty(nscans)
+        for i in np.arange(nscans):
+            self.phi(scannum=i+1)
+            maxphi[i] = np.max(np.abs(self.phi.ballooning))
+            self.apar(scannum=i+1)
+            maxapar[i] = np.max(np.abs(self.apar.ballooning))
+        plt.figure()
+        plt.plot(self.scanlog['paramvalues'], maxphi/maxapar)
+        plt.xlabel(self.scanlog['paramname'])
+        plt.ylabel('Ratio Phi/Apar')

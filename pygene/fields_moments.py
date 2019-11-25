@@ -120,6 +120,7 @@ class _DataABC(object):
             if scannum != self._scannum:
                 self._scannum = scannum
                 self._get_parent_parameters(scannum)
+                self._set_binary_configuration()
                 self._set_path(scannum)
                 self._read_time_array()
         if ivar is not None:
@@ -151,6 +152,8 @@ class _DataABC(object):
             for i,off in enumerate(offset):
                 f.seek(off)
                 flatdata = np.fromfile(f, count=self._ndatapoints, dtype=npct)
+                if self.nz0*self.nky0*self.nx0 != flatdata.size:
+                    raise ValueError
                 data[:,:,:,i] = flatdata.reshape((self.nz0,self.nky0,self.nx0)).transpose()
         data_kxkyz_f = data[:,:,:,-1]
         if self.nky0>1:
@@ -246,7 +249,7 @@ class _DataABC(object):
         plt.xscale('symlog')
         plt.xlabel('kx rho_s')
         plt.ylabel('PSD('+self.varname+') [dB]')
-        plt.ylim(-40,10)
+#        plt.ylim(-40,10)
         plt.title(plot_title)
         # plot x,z image in axis #3
         plt.sca(ax.flat[2])
@@ -254,7 +257,7 @@ class _DataABC(object):
                    aspect='auto',
                    extent=[-self.lx/2, self.lx/2,-np.pi,np.pi],
                    origin='lower',
-                   cmap=plt.get_cmap('seismic'),
+                   cmap=plt.cm.bwr,
                    interpolation='bilinear')
         m = np.max(np.abs(self._xzimage))
         plt.clim(-m,m)
@@ -293,7 +296,7 @@ class _DataABC(object):
             plt.sca(ax.flat[5])
             plt.imshow(self._xyimage.transpose(),
                        origin='lower',
-                       cmap=plt.get_cmap('seismic'),
+                       cmap=plt.cm.bwr,
                        extent=[-lx/2,lx/2,-ly/2,ly/2],
                        interpolation='bilinear',
                        aspect='auto',
@@ -380,53 +383,23 @@ class Moment(_DataABC):
                                     (self.nx0,self.nky0,self.nz0,self.tind.size,4)))
         self.flux_angles = np.empty_like(self.fluxes.real)
         self.flux_names = ['gamma_es', 'gamma_em', 'q_es', 'q_em']
-        # gamma ES
+        # gamma ES  Gamma_es = <n * ve_x>
         self.fluxes[...,0] = np.conj(moms[0])*vex
-        self.flux_angles[...,0] = np.angle(np.conj(moms[0])*phi)/np.pi
-        # gamma EM
-        self.fluxes[...,1] = np.conj(moms[1])*bx
-        self.flux_angles[...,1] = np.angle(np.conj(moms[1])*apar)/np.pi
-        # q ES
+        self.flux_angles[...,0] = np.angle(np.conj(moms[0])*(-phi))/np.pi
+        # gamma EM  Gamma_em = <upar * B_x>
+        self.fluxes[...,1] = np.conj(moms[5])*bx
+        self.flux_angles[...,1] = np.angle(np.conj(moms[5])*(-apar))/np.pi
+        # q ES  Q_es = (1/2 Tpar + Tperp + 3/2 n) ve_x
         tmp1 = 1.5*moms[0]*Tref + 0.5*moms[1]*nref + moms[2]*nref
         self.fluxes[...,2] = np.conj(tmp1) * vex
         self.flux_angles[...,2] = np.angle(np.conj(tmp1)*phi)/np.pi
-        # q EM
+        # q EM  Q_em = (qpar + qperp + 5/2 upar) B_x
         tmp2 = moms[3] + moms[4]
         self.fluxes[...,3] = np.conj(tmp2) * bx
-        self.flux_angles[...,3] = np.angle(np.conj(tmp2)*apar)/np.pi
-#        self.flux_angles = np.angle(self.fluxes)/np.pi
+        self.flux_angles[...,3] = np.angle(np.conj(tmp2)*(-apar))/np.pi
         
     def plot_fluxes(self):
-#        # 2D plot fluxes vs ky, time
-#        plt.figure(figsize=(8,6))
-#        for i in range(4):
-#            yspec = np.sum(np.real(self.fluxes[...,i]), (0,2)) / self.nz0
-#            yspeclim = yspec.max()/1e4
-#            yspec[yspec<yspeclim] = yspeclim
-#            plt.subplot(2,2,i+1)
-#            plt.contourf(self.time[self.tind], 
-#                         self.kygrid[1:], 
-#                         10*np.log10(yspec[1:,:]))
-#            plt.xlabel('time (a/c_s)')
-#            plt.ylabel('ky * rho_s')
-#            plt.title(self.flux_names[i])
-#            plt.colorbar()
-#        plt.tight_layout()
-#        # plot time-avg. fluxes vs ky
-#        plt.figure(figsize=(8,6))
-#        for i in range(4):
-#            yspec_t = np.sum(np.real(self.fluxes[...,i]), (0,2)) / self.nz0
-#            yspeclim = np.max([yspec_t.max()/1e4, 1e-16])
-#            yspec_t[yspec_t<yspeclim] = yspeclim
-#            yspec_mean = np.mean(yspec_t[1:,:],1)
-#            yspec_std = np.std(10*np.log10(yspec_t[1:,:]),1)
-#            plt.subplot(2,2,i+1)
-#            plt.errorbar(self.kygrid[1:], 10*np.log10(yspec_mean), yerr=yspec_std)
-#            plt.xlabel('ky * rho_s')
-#            plt.ylabel(self.flux_names[i])
-#            plt.title(self._parent.label)
-#        plt.tight_layout()
-        # overplot kx-spectra for all fluxes
+        # kx spectra
         plt.figure(figsize=(9.25,3.5))
         plt.subplot(1,2,1)
         xspec = np.sum(np.real(self.fluxes), (1,2)) / self.nz0
@@ -447,7 +420,7 @@ class Moment(_DataABC):
         plt.ylim(-40,0)
         plt.legend()
         plt.title(self._parent.label)
-        # overplot ky-spectra for all fluxes
+        # ky spectra
         plt.subplot(1,2,2)
         yspec = np.sum(np.real(self.fluxes), (0,2)) / self.nz0
         yspec_mn = np.mean(yspec[1:,...], 1)
