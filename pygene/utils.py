@@ -15,7 +15,7 @@ import numpy as np
 # 'GENEWORK' directory; if undefined, default to user home directory
 genework = Path(os.getenv('GENEWORK', default = os.getenv('HOME')))
 
-re_nrgline = re.compile(r'^'+''.join([r'\s+([0-9E.+-]+)' for i in range(8)]))
+re_nrgline = re.compile(r'^'+''.join([r'\s+([0-9ENan.+-]+)' for i in range(8)]))
 re_energy = re.compile(r'^'+''.join([r'\s+([0-9ENan.+-]+)' for i in range(14)]))
 re_prefix = re.compile(r'^([a-zA-Z_-]+)')
 re_amp = re.compile(r'^&[a-zA-Z]+')
@@ -40,5 +40,5 @@ def validate_path(path):
     if not pathout.is_absolute():
         pathout = genework / path
     if not pathout.exists():
-        raise ValueError('Invalid path: {}'.format(path))
+        raise ValueError('Invalid path: {}'.format(pathout.as_posix()))
     return pathout

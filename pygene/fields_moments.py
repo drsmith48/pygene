@@ -44,7 +44,6 @@ class _DataABC(object):
         self._get_parent_parameters(self._scannum)
         self._set_binary_configuration()
         self._set_path(self._scannum)
-        self._read_time_array()
         
     def __call__(self, *args, **kwargs):
         self._check_data(*args, **kwargs)
@@ -103,16 +102,6 @@ class _DataABC(object):
         # implement in subclass
         pass
         
-    def _read_time_array(self):
-        intsize, entrysize, leapfld, nprt, npct, te, tesize = self._binary_configuration
-        self.time = np.empty(0)
-        with self.path.open('rb') as f:
-            filesize = os.path.getsize(self.path.as_posix())
-            for i in range(filesize // (leapfld+tesize)):
-                value = float(te.unpack(f.read(tesize))[1])
-                self.time = np.append(self.time, value)
-                f.seek(leapfld,1)
-
     def _check_data(self, scannum=None, ivar=None, tind=None):
         if self._islinearscan:
             if scannum is None:
@@ -123,6 +112,8 @@ class _DataABC(object):
                 self._set_binary_configuration()
                 self._set_path(scannum)
                 self._read_time_array()
+        if self.time is None:
+            self._read_time_array()
         if ivar is not None:
             self._ivar = ivar
         if tind is None:
@@ -130,6 +121,16 @@ class _DataABC(object):
         self._adjust_tind(tind)
         self._get_data()
             
+    def _read_time_array(self):
+        intsize, entrysize, leapfld, nprt, npct, te, tesize = self._binary_configuration
+        self.time = np.empty(0)
+        with self.path.open('rb') as f:
+            filesize = os.path.getsize(self.path.as_posix())
+            for i in range(filesize // (leapfld+tesize)):
+                value = float(te.unpack(f.read(tesize))[1])
+                self.time = np.append(self.time, value)
+                f.seek(leapfld,1)
+
     def _adjust_tind(self, tind):
         # load data based on tind and _ivar
         if isinstance(tind, (tuple,list,np.ndarray)):
@@ -208,7 +209,7 @@ class _DataABC(object):
         filtsig = signal.correlate(realmode, wavelet, method=method)
         self.gridosc = np.sum(np.abs(filtsig)**2)
 
-    def plot_mode(self, scannum=None, ivar=None, tind=None):
+    def plot_mode(self, scannum=None, ivar=None, tind=None, save=False):
         self._check_data(scannum=scannum, ivar=ivar, tind=tind)
         plot_title = self._parent.label
         if self._islinearscan:
@@ -308,7 +309,11 @@ class _DataABC(object):
             plt.ylabel('y/rho_s')
             plt.title(plot_title)
         plt.tight_layout()
-        
+        if save:
+            varname = self.varname.replace(' ', '-')
+            plt.savefig(f'{self._parent.path.parts[-2]}-{self._parent.path.parts[-1]}-{varname}.pdf',
+                        format='pdf', transparent=True)
+
 
 class Field(_DataABC):
 
@@ -324,8 +329,8 @@ class Field(_DataABC):
         else:
             self.path = self._parent.path / 'field.dat'
             
-    def plot_mode(self, scannum=None, tind=None):
-        super().plot_mode(scannum=scannum, tind=tind)
+    def plot_mode(self, scannum=None, tind=None, save=False):
+        super().plot_mode(scannum=scannum, tind=tind, save=save)
         
 
 class Moment(_DataABC):
@@ -341,6 +346,8 @@ class Moment(_DataABC):
         self.q_es = None
         self.q_em = None
         self._set_moment()
+        self.fluxes = None
+        self.flux_names = None
         super().__init__(ivar=self._imoment, parent=parent)
         
     def _set_moment(self, moment=0):
@@ -353,14 +360,14 @@ class Moment(_DataABC):
         else:
             self.path = self._parent.path / 'mom_{}.dat'.format(self.species)
 
-    def plot_mode(self, scannum=None, moment=None, tind=None):
+    def plot_mode(self, scannum=None, moment=None, tind=None, save=False):
         if moment is not None:
             self._set_moment(moment=moment)
-        super().plot_mode(scannum=scannum, ivar=moment, tind=tind)
+        super().plot_mode(scannum=scannum, ivar=moment, tind=tind, save=save)
         
-    def calc_fluxes(self, scannum=None, tind=None):
+    def _calc_fluxes(self, tind=None):
         if tind is None:
-            tind =np.arange(-1,-8*4,-4)
+            tind =np.arange(-1,-3*4,-4)
         else:
             self._adjust_tind(tind)
             tind = np.copy(self.tind)
@@ -398,18 +405,19 @@ class Moment(_DataABC):
         self.fluxes[...,3] = np.conj(tmp2) * bx
         self.flux_angles[...,3] = np.angle(np.conj(tmp2)*(-apar))/np.pi
         
-    def plot_fluxes(self):
+    def plot_fluxes(self, save=False, **kwargs):
+        if kwargs or self.fluxes is None:
+            self._calc_fluxes(**kwargs)
         # kx spectra
-        plt.figure(figsize=(9.25,3.5))
-        plt.subplot(1,2,1)
+        plt.figure(figsize=(11,6))
+        plt.subplot(231)
         xspec = np.sum(np.real(self.fluxes), (1,2)) / self.nz0
         xspec_mn = np.mean(xspec,1)
         xspec_std = np.std(xspec, 1)
         for i in range(4):
             d = xspec_mn[...,i]
             dstd = xspec_std[...,i]
-            yerr = ( 10*np.log10(d+dstd) -
-                     10*np.log10(d-dstd) ) / 2
+            yerr = ( 10*np.log10(d+dstd) - 10*np.log10(d-dstd) ) / 2
             plt.errorbar(self.kxgrid,
                          10*np.log10(d),
                          yerr=yerr,
@@ -417,23 +425,22 @@ class Moment(_DataABC):
         plt.xscale('symlog')
         plt.xlabel('kx * rho_s')
         plt.ylabel('Gam/Gam_gb, Q/Q_gb')
-        plt.ylim(-40,0)
+        plt.ylim(-50,0)
         plt.legend()
         plt.title(self._parent.label)
         # ky spectra
-        plt.subplot(1,2,2)
+        plt.subplot(232)
         yspec = np.sum(np.real(self.fluxes), (0,2)) / self.nz0
         yspec_mn = np.mean(yspec[1:,...], 1)
         yspec_std = np.std(yspec[1:,...], 1)
         yspec_mn_neg = -np.copy(yspec_mn)
-        yspec_mn[yspec_mn<1e-8] = np.nan
-        yspec_mn_neg[yspec_mn_neg<1e-8] = np.nan
+        yspec_mn[yspec_mn<1e-4] = np.nan
+        yspec_mn_neg[yspec_mn_neg<1e-4] = np.nan
         for i in range(4):
             d = yspec_mn[...,i]
             dstd = yspec_std[...,i]
             if np.any(np.isfinite(d)):
-                yerr = ( 10*np.log10(d+dstd) -
-                         10*np.log10(d-dstd) ) / 2
+                yerr = ( 10*np.log10(d+dstd) - 10*np.log10(d-dstd) ) / 2
                 plt.errorbar(self.kygrid[1:],
                              10*np.log10(d),
                              yerr=yerr,
@@ -442,8 +449,7 @@ class Moment(_DataABC):
                              label=self.flux_names[i])
             d = yspec_mn_neg[...,i]
             if np.any(np.isfinite(d)):
-                yerr = ( 10*np.log10(d+dstd) -
-                         10*np.log10(d-dstd) ) / 2
+                yerr = ( 10*np.log10(d+dstd) - 10*np.log10(d-dstd) ) / 2
                 plt.errorbar(self.kygrid[1:],
                              10*np.log10(d),
                              yerr=yerr,
@@ -454,12 +460,10 @@ class Moment(_DataABC):
         plt.ylabel('gamma/gamma_gb, q/q_gb')
         plt.legend()
         plt.title(self._parent.label)
-        plt.ylim(-30,10)
-        plt.tight_layout()
+        plt.ylim(-40,10)
         # plot 2D histogram of cross-phases vs ky, weighted by flux
         nbins = 80
         abins = np.linspace(-1,1,nbins+1)
-        plt.figure(figsize=(8,6))
         for i in range(4):
             counts = np.empty((self.nky0-1, nbins))
             for iky in range(self.nky0-1):
@@ -468,10 +472,13 @@ class Moment(_DataABC):
                     bins=abins,
                     weights=np.abs(self.fluxes[:,iky+1,:,:,i].flatten()),
                     density=True)
-            plt.subplot(2,2,i+1)
+            plt.subplot(2,3,i+3)
             plt.contourf((abins[0:-1]+abins[1:])/2, self.kygrid[1:], counts)
             plt.xlabel('cross-phase (rad/pi)')
             plt.ylabel('ky * rho_s')
             plt.title(self._parent.label+' | '+self.flux_names[i])
             plt.colorbar()
         plt.tight_layout()
+        if save:
+            plt.savefig(f'{self._parent.path.parts[-2]}-{self._parent.path.parts[-1]}-{self.species[0:3]}-fluxes.pdf',
+                        format='pdf', transparent=True)

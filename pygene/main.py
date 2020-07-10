@@ -79,6 +79,7 @@ class _GeneBaseClass(object):
             get_value('nz0')
             get_value('scan_dims')
             get_value('istep_omega')
+            get_value('istep_nrg')
             get_value('dt_max')
             f.seek(0)
             for line in f:
@@ -86,6 +87,7 @@ class _GeneBaseClass(object):
                     match = utils.re_item.match(line)
                     spec_name = eval(match.group('value'))
                     self.species.append(spec_name)
+        # end open self._paramsfile
         # assemble fields
         self.fields.append('phi')
         if self.params['beta']:
@@ -245,21 +247,30 @@ class _GeneBaseClass(object):
                     data = np.append(data, np.empty((1,8,nsp)), axis=0)
                 elif iline <= nsp:
                     rx = utils.re_nrgline.match(line)
-                    values = [float(val) for val in rx.groups()]
+                    values = []
+                    for val in rx.groups():
+                        if 'E' in val:
+                            values.append(float(val))
+                        else:
+                            values.append(float('nan'))
+                    #values = [float(val) if 'E' in val else float('NaN') 
+                    #    for val in rx.groups()]
                     data[-1,:,iline-1] = np.array(values)
                 else:
                     raise ValueError(str(iline))
         nrgdata = {'time':time}
+        dtime = np.diff(time)
+        nrgdata['dtime'] = np.append(dtime, dtime[-1]) # repeat last to keep same length
         for i in range(nsp):
             nrgdata[self.species[i]] = \
-                {'nsq':data[:,0,i],
-                 'uparsq':data[:,1,i],
-                 'tparsq':data[:,2,i],
-                 'tperpsq':data[:,3,i],
-                 'games':data[:,4,i],
-                 'gamem':data[:,5,i],
-                 'qes':data[:,6,i],
-                 'qem':data[:,7,i]}
+                {'n_sq':data[:,0,i],
+                 'upar_sq':data[:,1,i],
+                 'tpar_sq':data[:,2,i],
+                 'tperp_sq':data[:,3,i],
+                 'gamma_es':data[:,4,i],
+                 'gamma_em':data[:,5,i],
+                 'q_es':data[:,6,i],
+                 'q_em':data[:,7,i]}
         return nrgdata
 
     def print_domain(self, scannum=1):
@@ -335,32 +346,50 @@ class GeneNonlinear(_GeneBaseClass):
                        'netdrive':np.sum(data[:,3:12],axis=1),
                        'grossdrive':np.sum(data[:,3:5],axis=1)}
 
-    def plot_nrg(self):
-        time = self.nrg['time']
+    def plot_nrg(self, use_nrg=None, save=False):
+        if use_nrg:
+            nrg = use_nrg
+        else:
+            nrg = self.nrg
+        time = nrg['time']
         t1 = np.searchsorted(time, 1.0)
-        fig, ax = plt.subplots(ncols=len(self.species), nrows=2, figsize=(9,5))
-        ax = ax.reshape((2,1))
+        fig, ax = plt.subplots(ncols=len(self.species), nrows=3, figsize=(9,7.5))
+        ax = ax.reshape((3,-1))
         for i,sp in enumerate(self.species):
-            nrg = self.nrg[sp]
+            nrg_sp = nrg[sp]
             title = '{} {}'.format(self.label, sp)
-            for key,value in nrg.items():
+            for key,value in nrg_sp.items():
                 if key.lower().startswith('q') or key.lower().startswith('gam'):
                     plt.sca(ax[1,i])
                 else:
                     plt.sca(ax[0,i])
                 label = '{} ({:.1e})'.format(key, value[-1])
-                plt.plot(time[t1:], value[t1:], label=label)
+                plt.plot(time[t1:], value[t1:], marker='', label=label)
             for iax in [0,1]:
                 plt.sca(ax[iax,i])
                 plt.legend(loc='upper left')
-                plt.xlabel('time (a/c_s)')
+                plt.xlabel('Time (a/c_s)')
                 plt.title(title)
+                if iax == 0:
+                    plt.ylabel('Sq. ampl.')
+                    plt.yscale('log')
                 if iax==1:
                     plt.ylabel('Gamma_gb, Q_gb')
                     q_gb = self.phi._processed_parameters['q_gb']
                     plt.annotate('Q_gb = {:.1f} kW/m**2'.format(q_gb/1e3),
                                  [0.7,0.7], xycoords='axes fraction')
+        plt.sca(ax[2,0])
+        plt.plot([time[0], time[-1]], np.array([1,1])*self.params['dt_max'], label='dt_max')
+        plt.plot(time, nrg['dtime'] / self.params['istep_nrg'], label='PETSC timestep')
+        plt.legend()
+        plt.yscale('log')
+        plt.xlabel('Time (a/c_s)')
+        plt.ylabel('Timestep (a/c_s)')
+        plt.title(title)
         plt.tight_layout()
+        if save:
+            plt.savefig(f'{self.path.parts[-2]}-{self.path.parts[-1]}-nrg.pdf',
+                        format='pdf', transparent=True)
 
     def plot_energy(self):
         if not self.energy:
@@ -381,45 +410,35 @@ class GeneNonlinear(_GeneBaseClass):
         super().plot_curvature(bcurv)
 
 
+def symlog(values, limit=0.1):
+    newvalues = np.copy(values)
+    newvalues[values>limit] = np.log10(values[values>limit])
+    limit = -limit
+    newvalues[values<limit] = -np.log10(-values[values<limit])
+    return newvalues
+
+
 def concat_nrg(inputs):
+    if not isinstance(inputs, list):
+        inputs = sorted([d.parent for d in Path(inputs).glob('*/nrg.dat')])
     if isinstance(inputs[0], GeneNonlinear):
         sims = inputs
     else:
         sims = [GeneNonlinear(d) for d in inputs]
+    # pop item 0, initialize nrg dictionary
     sim = sims.pop(0)
-    if not isinstance(sim, GeneNonlinear):
-        raise ValueError
-    species = sim.species
     nrg = sim.nrg.copy()
+    # loop over sims, concatenate time-series data
     for sim in sims:
-        nrg['time'] = np.append(nrg['time'], sim.nrg['time'])
-        for sp in sim.species:
-            for key in sim.nrg[sp].keys():
-                nrg[sp][key] = np.concatenate([nrg[sp][key], sim.nrg[sp][key]])
-    time = nrg['time']
-    t1 = np.searchsorted(time, 1.0)
-    fig, ax = plt.subplots(ncols=len(species), nrows=2, figsize=(9,5))
-    ax = ax.reshape((2,1))
-    for i,sp in enumerate(species):
-        for key,value in nrg[sp].items():
-            if key.lower().startswith('q') or key.lower().startswith('gam'):
-                plt.sca(ax[1,i])
+        if sim.nrg['time'].size<=2 or sim.nrg['time'][0]<nrg['time'][-1]:
+            continue
+        for key1,value1 in nrg.items():
+            if isinstance(value1, np.ndarray):
+                nrg[key1] = np.concatenate((nrg[key1], sim.nrg[key1]))
             else:
-                plt.sca(ax[0,i])
-            label = '{} ({:.1e})'.format(key, value[-1])
-            plt.plot(time[t1:], value[t1:], label=label)
-        for iax in [0,1]:
-            plt.sca(ax[iax,i])
-            plt.legend(loc='upper left')
-            plt.xlabel('time (a/c_s)')
-            if iax==1:
-                plt.ylabel('Gamma_gb, Q_gb')
-                q_gb = sims[0].phi._processed_parameters['q_gb']
-                plt.annotate('Q_gb = {:.1f} kW/m**2'.format(q_gb/1e3),
-                             [0.7,0.7], xycoords='axes fraction')
-    plt.sca(ax[0,0])
-    plt.title(sims[-1].label)
-    plt.tight_layout()
+                for key2 in value1.keys():
+                    nrg[key1][key2] = np.concatenate((nrg[key1][key2], sim.nrg[key1][key2]))
+    return nrg
 
 
 class GeneLinearScan(_GeneBaseClass):
