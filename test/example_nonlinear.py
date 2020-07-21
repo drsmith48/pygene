@@ -1,7 +1,11 @@
+import matplotlib.pyplot as plt
 from pathlib import Path
 import pygene as pg
 
+plt.close('all')
+
 topdir = Path.home() / 'pegasus/nl08/eq21-pn50'
+savefigs=False
 
 # simdir = topdir / 'run-77453'
 # sim = pg.GeneNonlinear(simdir)
@@ -15,15 +19,16 @@ topdir = Path.home() / 'pegasus/nl08/eq21-pn50'
 # nrgs = pg.concat_nrg(topdir)
 # sims[-1].plot_nrg(use_nrg=nrgs)
 
-dirs = sorted([p for p in topdir.glob('run-*') if p.is_dir()])
+dirs = pg.allsims(topdir)
 sims = [pg.GeneNonlinear(d) for d in dirs]
 
-sim = sims[-1]
+lastdir = pg.lastsim(topdir)
+sim = pg.GeneNonlinear(lastdir)
 # sim.plot_nrg(save=True)
-sim.plot_nrg(use_nrg=pg.concat_nrg(sims), save=True)
-sim.phi.plot_mode(save=True)
-sim.apar.plot_mode(save=True)
+sim.plot_nrg(use_nrg=pg.concat_nrg(sims), save=savefigs)
+sim.phi.plot_mode(save=savefigs)
+sim.apar.plot_mode(save=savefigs)
 for moment in range(6):
-    sim.electrons.plot_mode(moment=moment, save=True)
-sim.electrons.plot_fluxes(save=True)
-sim.vsp.plot_vspace(save=True)
+    sim.electrons.plot_mode(moment=moment, save=savefigs)
+sim.electrons.plot_fluxes(save=savefigs)
+sim.vsp.plot_vspace(save=savefigs)

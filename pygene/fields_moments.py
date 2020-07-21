@@ -246,11 +246,11 @@ class _DataABC(object):
             style='-'
         else:
             style='d-'
-        plt.plot(self.kxgrid[:-1], utils.log1010(self.kxspectrum[:-1]), style)
+        plt.plot(self.kxgrid[:-1], utils.log1010(self.kxspectrum[:-1]/self.kxspectrum.max()), style)
         plt.xscale('symlog')
         plt.xlabel('kx rho_s')
         plt.ylabel('PSD('+self.varname+') [dB]')
-#        plt.ylim(-40,10)
+        plt.ylim(-60,0)
         plt.title(plot_title)
         # plot x,z image in axis #3
         plt.sca(ax.flat[2])
@@ -270,25 +270,27 @@ class _DataABC(object):
             data = np.mean(np.abs(self.data),axis=3)
             # plot kx,ky spectrum in axis #4
             plt.sca(ax.flat[3])
-            plt.imshow(utils.log1010(np.mean(data, axis=2)).transpose(),
+            kxkydata = np.mean(data, axis=2)
+            plt.imshow(utils.log1010(kxkydata/kxkydata.max()).transpose(),
                        aspect='auto',
                        extent=[self.kxgrid[0], self.kxgrid[-1],
                                self.kygrid[0], self.kygrid[-1]],
                        origin='lower',
                        cmap=plt.get_cmap('gnuplot2'),
                        interpolation='bilinear')
-            plt.clim(-30,0)
+            plt.clim(-50,0)
             plt.xlabel('kx rho_s')
             plt.ylabel('ky rho_s')
             plt.title(plot_title)
             plt.colorbar()
             # plot ky spectrum in axis #5
             plt.sca(ax.flat[4])
+            kydata = np.mean(data, axis=(0,2))
             plt.plot(self.kygrid, 
-                     utils.log1010(np.mean(data, axis=(0,2))),
+                     utils.log1010(kydata/kydata.max()),
                      '-x')
             plt.xlabel('ky rho_s')
-            plt.ylim(-40,0)
+            plt.ylim(-50,0)
             plt.ylabel('PSD('+self.varname+') [dB]')
             plt.title(plot_title)
             # plot x,y image in axis #6
@@ -424,8 +426,8 @@ class Moment(_DataABC):
                          label=self.flux_names[i])
         plt.xscale('symlog')
         plt.xlabel('kx * rho_s')
-        plt.ylabel('Gam/Gam_gb, Q/Q_gb')
-        plt.ylim(-50,0)
+        plt.ylabel('gamma/gamma_gb, q/q_gb')
+        plt.ylim(-40,10)
         plt.legend()
         plt.title(self._parent.label)
         # ky spectra
