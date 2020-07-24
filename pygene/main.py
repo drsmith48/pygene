@@ -349,7 +349,7 @@ def concat_nrg(inputs):
             plt.xlabel('time')
             plt.xlim(20,None)
     plt.sca(ax[0,0])
-    plt.title(sims[-1].label)
+    plt.title(sim.path.relative_to(genework))
     plt.tight_layout()
 
 
