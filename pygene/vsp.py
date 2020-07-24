@@ -141,7 +141,7 @@ class Vspace(object):
                 for isp,spname in enumerate(self.species):
                     self.vspdata[spname][:,:,:,i] = rawdata[:,:,:,isp,4]
     
-    def plot_vspace(self, tind=None, scannum=None):
+    def plot_vspace(self, tind=None, scannum=None, save=False):
         self._check_data(tind=tind, scannum=scannum)
         title = self._parent.label
         if self._scannum:
@@ -220,4 +220,6 @@ class Vspace(object):
             plt.title('FFT(sqrt(<f^2>)) ' + species)
             plt.colorbar()
         fig.suptitle(self._plot_title)
-        
+        if save:
+            plt.savefig(f'{self._parent.path.parts[-2]}-{self._parent.path.parts[-1]}-vsp.pdf',
+                        format='pdf', transparent=True)

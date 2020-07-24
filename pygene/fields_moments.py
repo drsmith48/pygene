@@ -44,7 +44,6 @@ class _DataABC(object):
         self._get_parent_parameters(self._scannum)
         self._set_binary_configuration()
         self._set_path(self._scannum)
-        self._read_time_array()
         
     def __call__(self, *args, **kwargs):
         self._check_data(*args, **kwargs)
@@ -56,6 +55,8 @@ class _DataABC(object):
             paramsfile = self._parent.path / 'parameters_{:04d}'.format(scannum)
         self._processed_parameters = \
             self._parent._get_processed_parameters(paramsfile=paramsfile)
+#        print('omega ref = {:.3f} kHz'.
+#              format(self._processed_parameters['omega_ref']/(2*np.pi)/1e3))
         # get simulation domain, make grids
         self.nx0 = self._processed_parameters['nx0']
         self.nky0 = self._processed_parameters['nky0']
@@ -101,6 +102,25 @@ class _DataABC(object):
         # implement in subclass
         pass
         
+    def _check_data(self, scannum=None, ivar=None, tind=None):
+        if self._islinearscan:
+            if scannum is None:
+                scannum = 1
+            if scannum != self._scannum:
+                self._scannum = scannum
+                self._get_parent_parameters(scannum)
+                self._set_binary_configuration()
+                self._set_path(scannum)
+                self._read_time_array()
+        if self.time is None:
+            self._read_time_array()
+        if ivar is not None:
+            self._ivar = ivar
+        if tind is None:
+            tind = -1
+        self._adjust_tind(tind)
+        self._get_data()
+            
     def _read_time_array(self):
         intsize, entrysize, leapfld, nprt, npct, te, tesize = self._binary_configuration
         self.time = np.empty(0)
@@ -111,22 +131,6 @@ class _DataABC(object):
                 self.time = np.append(self.time, value)
                 f.seek(leapfld,1)
 
-    def _check_data(self, scannum=None, ivar=None, tind=None):
-        if self._islinearscan:
-            if scannum is None:
-                scannum = 1
-            if scannum != self._scannum:
-                self._scannum = scannum
-                self._get_parent_parameters(scannum)
-                self._set_path(scannum)
-                self._read_time_array()
-        if ivar is not None:
-            self._ivar = ivar
-        if tind is None:
-            tind = -1
-        self._adjust_tind(tind)
-        self._get_data()
-            
     def _adjust_tind(self, tind):
         # load data based on tind and _ivar
         if isinstance(tind, (tuple,list,np.ndarray)):
@@ -149,6 +153,8 @@ class _DataABC(object):
             for i,off in enumerate(offset):
                 f.seek(off)
                 flatdata = np.fromfile(f, count=self._ndatapoints, dtype=npct)
+                if self.nz0*self.nky0*self.nx0 != flatdata.size:
+                    raise ValueError
                 data[:,:,:,i] = flatdata.reshape((self.nz0,self.nky0,self.nx0)).transpose()
         data_kxkyz_f = data[:,:,:,-1]
         if self.nky0>1:
@@ -190,18 +196,20 @@ class _DataABC(object):
                                  self.ballooning[imid-1:imid-1-nz4:-1]))
         self.parity2 = np.mean(np.divide(sumsig2-diffsig2,sumsig2+diffsig2+1e-12))
         taillength = np.int(np.floor(0.025*paragridsize))
-        amode = np.abs(self.ballooning)
-        tails = np.concatenate((amode[0:taillength+1], amode[-(taillength+1):]))
-        tailsize = np.max(tails/amode.max())
+        absmode = np.abs(self.ballooning)
+        absmode[absmode<1e-16] = 1e-16
+        tails = np.concatenate((absmode[0:taillength+1], absmode[-(taillength+1):]))
+        tailsize = np.max(tails/np.max(absmode))
         self.tailsize = np.max([tailsize,1e-3])
         realmode = np.real(self.ballooning)
+        if realmode.max()<1e-16: realmode[0] = 1e-16
         realmode = realmode / np.sqrt(np.sum(np.abs(realmode)**2))
         wavelet = signal.ricker(5,0.5)
         method = signal.choose_conv_method(realmode,wavelet)
         filtsig = signal.correlate(realmode, wavelet, method=method)
         self.gridosc = np.sum(np.abs(filtsig)**2)
 
-    def plot_mode(self, scannum=None, ivar=None, tind=None):
+    def plot_mode(self, scannum=None, ivar=None, tind=None, save=False):
         self._check_data(scannum=scannum, ivar=ivar, tind=tind)
         plot_title = self._parent.label
         if self._islinearscan:
@@ -238,9 +246,11 @@ class _DataABC(object):
             style='-'
         else:
             style='d-'
-        plt.plot(self.kxgrid[:-1], utils.log1010(self.kxspectrum[:-1]), style)
-        plt.xlabel('kx')
+        plt.plot(self.kxgrid[:-1], utils.log1010(self.kxspectrum[:-1]/self.kxspectrum.max()), style)
+        plt.xscale('symlog')
+        plt.xlabel('kx rho_s')
         plt.ylabel('PSD('+self.varname+') [dB]')
+        plt.ylim(-60,0)
         plt.title(plot_title)
         # plot x,z image in axis #3
         plt.sca(ax.flat[2])
@@ -248,11 +258,11 @@ class _DataABC(object):
                    aspect='auto',
                    extent=[-self.lx/2, self.lx/2,-np.pi,np.pi],
                    origin='lower',
-                   cmap=plt.get_cmap('seismic'),
+                   cmap=plt.cm.bwr,
                    interpolation='bilinear')
         m = np.max(np.abs(self._xzimage))
         plt.clim(-m,m)
-        plt.xlabel('x')
+        plt.xlabel('x/rho_s')
         plt.ylabel('z (rad)')
         plt.title(plot_title)
         plt.colorbar()
@@ -260,23 +270,27 @@ class _DataABC(object):
             data = np.mean(np.abs(self.data),axis=3)
             # plot kx,ky spectrum in axis #4
             plt.sca(ax.flat[3])
-            plt.imshow(utils.log1010(np.mean(data, axis=2)).transpose(),
+            kxkydata = np.mean(data, axis=2)
+            plt.imshow(utils.log1010(kxkydata/kxkydata.max()).transpose(),
                        aspect='auto',
                        extent=[self.kxgrid[0], self.kxgrid[-1],
                                self.kygrid[0], self.kygrid[-1]],
                        origin='lower',
                        cmap=plt.get_cmap('gnuplot2'),
                        interpolation='bilinear')
-            plt.clim(-30,0)
-            plt.xlabel('kx')
-            plt.ylabel('ky')
+            plt.clim(-50,0)
+            plt.xlabel('kx rho_s')
+            plt.ylabel('ky rho_s')
             plt.title(plot_title)
             plt.colorbar()
             # plot ky spectrum in axis #5
             plt.sca(ax.flat[4])
-            plt.plot(self.kygrid, utils.log1010(np.mean(data, axis=(0,2))))
-            plt.xlabel('ky')
-            plt.ylim(-35,-5)
+            kydata = np.mean(data, axis=(0,2))
+            plt.plot(self.kygrid, 
+                     utils.log1010(kydata/kydata.max()),
+                     '-x')
+            plt.xlabel('ky rho_s')
+            plt.ylim(-50,0)
             plt.ylabel('PSD('+self.varname+') [dB]')
             plt.title(plot_title)
             # plot x,y image in axis #6
@@ -285,18 +299,23 @@ class _DataABC(object):
             plt.sca(ax.flat[5])
             plt.imshow(self._xyimage.transpose(),
                        origin='lower',
-                       cmap=plt.get_cmap('seismic'),
+                       cmap=plt.cm.bwr,
                        extent=[-lx/2,lx/2,-ly/2,ly/2],
                        interpolation='bilinear',
-                       aspect='equal')
+                       aspect='auto',
+                       )
             m = np.max(np.abs(self._xyimage))
             plt.clim(-m,m)
             plt.colorbar()
-            plt.xlabel('x')
-            plt.ylabel('y')
+            plt.xlabel('x/rho_s')
+            plt.ylabel('y/rho_s')
             plt.title(plot_title)
         plt.tight_layout()
-        
+        if save:
+            varname = self.varname.replace(' ', '-')
+            plt.savefig(f'{self._parent.path.parts[-2]}-{self._parent.path.parts[-1]}-{varname}.pdf',
+                        format='pdf', transparent=True)
+
 
 class Field(_DataABC):
 
@@ -312,8 +331,8 @@ class Field(_DataABC):
         else:
             self.path = self._parent.path / 'field.dat'
             
-    def plot_mode(self, scannum=None, tind=None):
-        super().plot_mode(scannum=scannum, tind=tind)
+    def plot_mode(self, scannum=None, tind=None, save=False):
+        super().plot_mode(scannum=scannum, tind=tind, save=save)
         
 
 class Moment(_DataABC):
@@ -329,6 +348,8 @@ class Moment(_DataABC):
         self.q_es = None
         self.q_em = None
         self._set_moment()
+        self.fluxes = None
+        self.flux_names = None
         super().__init__(ivar=self._imoment, parent=parent)
         
     def _set_moment(self, moment=0):
@@ -341,14 +362,14 @@ class Moment(_DataABC):
         else:
             self.path = self._parent.path / 'mom_{}.dat'.format(self.species)
 
-    def plot_mode(self, scannum=None, moment=None, tind=None):
+    def plot_mode(self, scannum=None, moment=None, tind=None, save=False):
         if moment is not None:
             self._set_moment(moment=moment)
-        super().plot_mode(scannum=scannum, ivar=moment, tind=tind)
+        super().plot_mode(scannum=scannum, ivar=moment, tind=tind, save=save)
         
-    def calc_fluxes(self, scannum=None, tind=None):
+    def _calc_fluxes(self, tind=None):
         if tind is None:
-            tind =np.arange(-1,-8*4,-4)
+            tind =np.arange(-1,-3*4,-4)
         else:
             self._adjust_tind(tind)
             tind = np.copy(self.tind)
@@ -358,11 +379,9 @@ class Moment(_DataABC):
         ky_tile = np.broadcast_to(self.kygrid.reshape((1,self.nky0,1,1)), 
                                   [self.nx0, self.nky0, self.nz0, tind.size])
         vex = -1j * ky_tile * phi
-#        vex = ky_tile * phi
         self._parent.apar._check_data(tind=tind)
         apar = np.copy(self._parent.apar.data)
         bx = 1j * ky_tile * apar
-#        bx = ky_tile * apar
         moms = []
         for imom in range(6):
             self._check_data(ivar=imom, tind=tind)
@@ -373,78 +392,80 @@ class Moment(_DataABC):
                                     (self.nx0,self.nky0,self.nz0,self.tind.size,4)))
         self.flux_angles = np.empty_like(self.fluxes.real)
         self.flux_names = ['gamma_es', 'gamma_em', 'q_es', 'q_em']
-        # gamma ES
+        # gamma ES  Gamma_es = <n * ve_x>
         self.fluxes[...,0] = np.conj(moms[0])*vex
-        self.flux_angles[...,0] = np.angle(np.conj(moms[0])*phi)/np.pi
-        # gamma EM
-        self.fluxes[...,1] = np.conj(moms[1])*bx
-        self.flux_angles[...,1] = np.angle(np.conj(moms[1])*apar)/np.pi
-        # q ES
+        self.flux_angles[...,0] = np.angle(np.conj(moms[0])*(-phi))/np.pi
+        # gamma EM  Gamma_em = <upar * B_x>
+        self.fluxes[...,1] = np.conj(moms[5])*bx
+        self.flux_angles[...,1] = np.angle(np.conj(moms[5])*(-apar))/np.pi
+        # q ES  Q_es = (1/2 Tpar + Tperp + 3/2 n) ve_x
         tmp1 = 1.5*moms[0]*Tref + 0.5*moms[1]*nref + moms[2]*nref
         self.fluxes[...,2] = np.conj(tmp1) * vex
         self.flux_angles[...,2] = np.angle(np.conj(tmp1)*phi)/np.pi
-        # q EM
+        # q EM  Q_em = (qpar + qperp + 5/2 upar) B_x
         tmp2 = moms[3] + moms[4]
         self.fluxes[...,3] = np.conj(tmp2) * bx
-        self.flux_angles[...,3] = np.angle(np.conj(tmp2)*apar)/np.pi
-#        self.flux_angles = np.angle(self.fluxes)/np.pi
+        self.flux_angles[...,3] = np.angle(np.conj(tmp2)*(-apar))/np.pi
         
-    def plot_fluxes(self):
-#        # 2D plot fluxes vs ky, time
-#        plt.figure(figsize=(8,6))
-#        for i in range(4):
-#            yspec = np.sum(np.real(self.fluxes[...,i]), (0,2)) / self.nz0
-#            yspeclim = yspec.max()/1e4
-#            yspec[yspec<yspeclim] = yspeclim
-#            plt.subplot(2,2,i+1)
-#            plt.contourf(self.time[self.tind], 
-#                         self.kygrid[1:], 
-#                         10*np.log10(yspec[1:,:]))
-#            plt.xlabel('time (a/c_s)')
-#            plt.ylabel('ky * rho_s')
-#            plt.title(self.flux_names[i])
-#            plt.colorbar()
-#        plt.tight_layout()
-#        # plot time-avg. fluxes vs ky
-#        plt.figure(figsize=(8,6))
-#        for i in range(4):
-#            yspec_t = np.sum(np.real(self.fluxes[...,i]), (0,2)) / self.nz0
-#            yspeclim = np.max([yspec_t.max()/1e4, 1e-16])
-#            yspec_t[yspec_t<yspeclim] = yspeclim
-#            yspec_mean = np.mean(yspec_t[1:,:],1)
-#            yspec_std = np.std(10*np.log10(yspec_t[1:,:]),1)
-#            plt.subplot(2,2,i+1)
-#            plt.errorbar(self.kygrid[1:], 10*np.log10(yspec_mean), yerr=yspec_std)
-#            plt.xlabel('ky * rho_s')
-#            plt.ylabel(self.flux_names[i])
-#            plt.title(self._parent.label)
-#        plt.tight_layout()
-        # overplot all flux y-spectra
-        plt.figure()
-        yspec_yf = np.sum(np.real(self.fluxes), (0,2)) / self.nz0
-        yspec_yf_neg = -np.copy(yspec_yf)
-        yspec_yf[yspec_yf<1e-16] = np.nan
-        yspec_yf_neg[yspec_yf_neg<1e-16] = np.nan
+    def plot_fluxes(self, save=False, **kwargs):
+        if kwargs or self.fluxes is None:
+            self._calc_fluxes(**kwargs)
+        # kx spectra
+        plt.figure(figsize=(11,6))
+        plt.subplot(231)
+        xspec = np.sum(np.real(self.fluxes), (1,2)) / self.nz0
+        xspec_mn = np.mean(xspec,1)
+        xspec_std = np.std(xspec, 1)
         for i in range(4):
-            if np.any(np.isfinite(yspec_yf[1:,:,i])):
+            d = xspec_mn[...,i]
+            dstd = xspec_std[...,i]
+            yerr = ( 10*np.log10(d+dstd) - 10*np.log10(d-dstd) ) / 2
+            plt.errorbar(self.kxgrid,
+                         10*np.log10(d),
+                         yerr=yerr,
+                         label=self.flux_names[i])
+        plt.xscale('symlog')
+        plt.xlabel('kx * rho_s')
+        plt.ylabel('gamma/gamma_gb, q/q_gb')
+        plt.ylim(-40,10)
+        plt.legend()
+        plt.title(self._parent.label)
+        # ky spectra
+        plt.subplot(232)
+        yspec = np.sum(np.real(self.fluxes), (0,2)) / self.nz0
+        yspec_mn = np.mean(yspec[1:,...], 1)
+        yspec_std = np.std(yspec[1:,...], 1)
+        yspec_mn_neg = -np.copy(yspec_mn)
+        yspec_mn[yspec_mn<1e-4] = np.nan
+        yspec_mn_neg[yspec_mn_neg<1e-4] = np.nan
+        for i in range(4):
+            d = yspec_mn[...,i]
+            dstd = yspec_std[...,i]
+            if np.any(np.isfinite(d)):
+                yerr = ( 10*np.log10(d+dstd) - 10*np.log10(d-dstd) ) / 2
                 plt.errorbar(self.kygrid[1:],
-                             10*np.log10(np.nanmean(yspec_yf[1:,:,i],1)),
-                             yerr=np.nanstd(10*np.log10(yspec_yf[1:,:,i]),1),
+                             10*np.log10(d),
+                             yerr=yerr,
+                             marker='x',
+                             linestyle='-',
                              label=self.flux_names[i])
-            if np.any(np.isfinite(yspec_yf_neg[1:,:,i])):
+            d = yspec_mn_neg[...,i]
+            if np.any(np.isfinite(d)):
+                yerr = ( 10*np.log10(d+dstd) - 10*np.log10(d-dstd) ) / 2
                 plt.errorbar(self.kygrid[1:],
-                             10*np.log10(np.nanmean(yspec_yf_neg[1:,:,i],1)),
-                             yerr=np.nanstd(10*np.log10(yspec_yf_neg[1:,:,i]),1),
+                             10*np.log10(d),
+                             yerr=yerr,
+                             marker='+',
+                             linestyle='--',
                              label=self.flux_names[i]+' (pinch)')
         plt.xlabel('ky * rho_s')
         plt.ylabel('gamma/gamma_gb, q/q_gb')
         plt.legend()
         plt.title(self._parent.label)
-        plt.tight_layout()
+        plt.ylim(-40,10)
         # plot 2D histogram of cross-phases vs ky, weighted by flux
         nbins = 80
         abins = np.linspace(-1,1,nbins+1)
-        plt.figure(figsize=(8,6))
         for i in range(4):
             counts = np.empty((self.nky0-1, nbins))
             for iky in range(self.nky0-1):
@@ -453,10 +474,13 @@ class Moment(_DataABC):
                     bins=abins,
                     weights=np.abs(self.fluxes[:,iky+1,:,:,i].flatten()),
                     density=True)
-            plt.subplot(2,2,i+1)
+            plt.subplot(2,3,i+3)
             plt.contourf((abins[0:-1]+abins[1:])/2, self.kygrid[1:], counts)
             plt.xlabel('cross-phase (rad/pi)')
             plt.ylabel('ky * rho_s')
             plt.title(self._parent.label+' | '+self.flux_names[i])
             plt.colorbar()
         plt.tight_layout()
+        if save:
+            plt.savefig(f'{self._parent.path.parts[-2]}-{self._parent.path.parts[-1]}-{self.species[0:3]}-fluxes.pdf',
+                        format='pdf', transparent=True)

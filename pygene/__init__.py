@@ -6,4 +6,4 @@ from future import standard_library
 standard_library.install_aliases()
 
 
-from .main import genework, GeneLinearScan, GeneNonlinear, concat_nrg
+from .main import genework, GeneLinearScan, GeneNonlinear, concat_nrg, lastsim, allsims, plot_multisim
