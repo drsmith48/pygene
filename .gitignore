@@ -4,4 +4,4 @@ __pycache__/
 .*S_Store
 *.py.bak
 .idea/
-
+.ipynb_checkpoints

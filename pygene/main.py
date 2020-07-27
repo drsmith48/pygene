@@ -14,8 +14,6 @@ standard_library.install_aliases()
 
 from pathlib import Path
 import re
-import tkinter as tk
-from tkinter import filedialog
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -23,9 +21,6 @@ import matplotlib.pyplot as plt
 from .fields_moments import Moment, Field
 from .vsp import Vspace
 from . import utils
-
-root = tk.Tk()
-root.withdraw()
 
 genework = utils.genework
 
@@ -35,8 +30,7 @@ class _GeneBaseClass(object):
     def __init__(self, path=None, label=None):
         # set path and label
         if not path:
-            path = filedialog.askdirectory(initialdir=genework.as_posix())
-            path = Path(path)
+            raise ValueError
         self.path = utils.validate_path(path)
         self.label = label if label else '/'.join(self.path.parts[-2:])
         # attribute declarations
