@@ -667,8 +667,12 @@ class GeneLinearScan(_GeneBaseClass):
 
     def plot_omega(self, xscale='linear', gammascale='linear', oplot=[],
                    gamma_lim=None, ky_lim=None, oplot_color=[],
-                   legend=False, apar=False):
-        fig, axes = plt.subplots(nrows=5, figsize=(6, 6.75), sharex=True)
+                   legend=False, apar=False, all_plots=False):
+        if all_plots:
+            nrows = 5
+        else:
+            nrows = 2
+        fig, axes = plt.subplots(nrows=nrows, figsize=(6, 6.75*nrows/5), sharex=True)
         data = self.omega
         if self.scanlog and self.scandims == 1:
             if self.scanlog['paramname'] == 'n0_global':
@@ -679,15 +683,17 @@ class GeneLinearScan(_GeneBaseClass):
             xdata = np.arange(self.nscans) + 1
         axes[0].plot(xdata, data['omi'], '-x', color='C0', label=self.label)
         axes[1].plot(xdata, data['omr'], '-x', color='C0', label=self.label)
-        axes[2].plot(xdata, data['parity'], '-x', color='C0', label=self.label)
-        axes[3].plot(xdata, data['tailsize'], '-x', color='C0', label=self.label)
-        axes[4].plot(xdata, data['gridosc'], '-x', color='C0', label=self.label)
+        if all_plots:
+            axes[2].plot(xdata, data['parity'], '-x', color='C0', label=self.label)
+            axes[3].plot(xdata, data['tailsize'], '-x', color='C0', label=self.label)
+            axes[4].plot(xdata, data['gridosc'], '-x', color='C0', label=self.label)
         if apar:
             axes[0].plot(xdata, data['apar-omi'], '--+', color='C0', label=self.label)
             axes[1].plot(xdata, data['apar-omr'], '--+', color='C0', label=self.label)
-            axes[2].plot(xdata, data['apar-parity'], '--+', color='C0', label=self.label)
-            axes[3].plot(xdata, data['apar-tailsize'], '--+', color='C0', label=self.label)
-            axes[4].plot(xdata, data['apar-gridosc'], '--+', color='C0', label=self.label)
+            if all_plots:
+                axes[2].plot(xdata, data['apar-parity'], '--+', color='C0', label=self.label)
+                axes[3].plot(xdata, data['apar-tailsize'], '--+', color='C0', label=self.label)
+                axes[4].plot(xdata, data['apar-gridosc'], '--+', color='C0', label=self.label)
         if oplot:
             if not isinstance(oplot, (list, tuple)):
                 oplot = [oplot]
@@ -710,23 +716,25 @@ class GeneLinearScan(_GeneBaseClass):
                              label=sim.label, color=color)
                 axes[1].plot(xdata, data['omr'], '-x',
                              label=sim.label, color=color)
-                axes[2].plot(xdata, data['parity'], '-x',
-                             label=sim.label, color=color)
-                axes[3].plot(xdata, data['tailsize'], '-x',
-                             label=sim.label, color=color)
-                axes[4].plot(xdata, data['gridosc'], '-x',
-                             label=sim.label, color=color)
+                if all_plots:
+                    axes[2].plot(xdata, data['parity'], '-x',
+                                 label=sim.label, color=color)
+                    axes[3].plot(xdata, data['tailsize'], '-x',
+                                 label=sim.label, color=color)
+                    axes[4].plot(xdata, data['gridosc'], '-x',
+                                 label=sim.label, color=color)
                 if apar:
                     axes[0].plot(xdata, data['apar-omi'], '--+',
                                  label=sim.label, color=color)
                     axes[1].plot(xdata, data['apar-omr'], '--+',
                                  label=sim.label, color=color)
-                    axes[2].plot(xdata, data['apar-parity'], '--+',
-                                 label=sim.label, color=color)
-                    axes[3].plot(xdata, data['apar-tailsize'], '--+',
-                                 label=sim.label, color=color)
-                    axes[4].plot(xdata, data['apar-gridosc'], '--+',
-                                 label=sim.label, color=color)
+                    if all_plots:
+                        axes[2].plot(xdata, data['apar-parity'], '--+',
+                                     label=sim.label, color=color)
+                        axes[3].plot(xdata, data['apar-tailsize'], '--+',
+                                     label=sim.label, color=color)
+                        axes[4].plot(xdata, data['apar-gridosc'], '--+',
+                                     label=sim.label, color=color)
         axes[0].set_title('/'.join(self.path.parts[-3:]))
         axes[0].set_ylabel('gamma/(c_s/a)')
         axes[0].set_yscale(gammascale)
@@ -743,14 +751,15 @@ class GeneLinearScan(_GeneBaseClass):
         axes[1].annotate(om_text, [0.7, 0.7], xycoords='axes fraction')
         rho_text = 'rho_s = {:.2f} cm'.format(self.omega['rho-ref'])
         axes[1].annotate(rho_text, [0.7, 0.5], xycoords='axes fraction')
-        axes[2].set_ylim(-1, 1)
-        axes[2].set_ylabel('parity')
-        axes[3].set_yscale('log')
-        axes[3].set_ylabel('mode tails')
-        axes[3].set_ylim(1e-3, 1)
-        axes[4].set_yscale('log')
-        axes[4].set_ylabel('grid osc.')
-        axes[4].set_ylim(1e-2, 1)
+        if all_plots:
+            axes[2].set_ylim(-1, 1)
+            axes[2].set_ylabel('parity')
+            axes[3].set_yscale('log')
+            axes[3].set_ylabel('mode tails')
+            axes[3].set_ylim(1e-3, 1)
+            axes[4].set_yscale('log')
+            axes[4].set_ylabel('grid osc.')
+            axes[4].set_ylim(1e-2, 1)
         if self.scanlog and self.scandims == 1:
             axes[-1].set_xlabel(self.scanlog['paramname'])
         else:

@@ -214,14 +214,14 @@ class _DataABC(object):
         plot_title = self._parent.label
         if self._islinearscan:
             plot_title += ' id {:d}'.format(self._scannum)
-        if self.nky0==1:
             # linear sim with nky0=1
-            fig, ax = plt.subplots(nrows=1, ncols=3, figsize=[11,3.25])
+            fig, ax = plt.subplots(nrows=2, ncols=2, figsize=[7.333,5.5])
         else:
             # nonlinear sim with nky0>1
             fig, ax = plt.subplots(nrows=2, ncols=3, figsize=[11,5.5])
         # plot parallel mode structure in axis #1
-        plt.sca(ax.flat[0])
+        iax = 0
+        plt.sca(ax.flat[iax])
         plt.plot(self.ballgrid, np.abs(self.ballooning), label='Abs()')
         if self._islinearscan:
             plt.plot(self.ballgrid, np.real(self.ballooning), label='Re()')
@@ -240,8 +240,32 @@ class _DataABC(object):
             if itwopi != 0:
                 plt.plot(-np.ones(2)*itwopi, ylim, color='tab:gray', linestyle='--')
             itwopi += 2
+        if self._islinearscan:
+            # plot parallel mode structure in axis #1
+            iax += 1
+            plt.sca(ax.flat[iax])
+            plt.plot(self.ballgrid, np.abs(self.ballooning), label='Abs()')
+            if self._islinearscan:
+                plt.plot(self.ballgrid, np.real(self.ballooning), label='Re()')
+                plt.legend()
+            plt.title(plot_title)
+            plt.xlabel('Ballooning angle (rad/pi)')
+            plt.ylabel(self.varname)
+            plt.annotate('ky={:.3f}'.format(self.kymin),
+                         xycoords='axes fraction',
+                         xy=[0.05,0.92])
+            xmax = self.ballgrid.max()
+            plt.xlim([-5,5])
+            itwopi = 0
+            ylim = plt.gca().get_ylim()
+            while itwopi<=5:
+                plt.plot(np.ones(2)*itwopi, ylim, color='tab:gray', linestyle='--')
+                if itwopi != 0:
+                    plt.plot(-np.ones(2)*itwopi, ylim, color='tab:gray', linestyle='--')
+                itwopi += 2
         # plot kx spectrum in axis #2
-        plt.sca(ax.flat[1])
+        iax += 1
+        plt.sca(ax.flat[iax])
         if self.kxgrid.size >= 64:
             style='-'
         else:
@@ -253,7 +277,8 @@ class _DataABC(object):
         plt.ylim(-60,0)
         plt.title(plot_title)
         # plot x,z image in axis #3
-        plt.sca(ax.flat[2])
+        iax += 1
+        plt.sca(ax.flat[iax])
         plt.imshow(self._xzimage.transpose(),
                    aspect='auto',
                    extent=[-self.lx/2, self.lx/2,-np.pi,np.pi],
@@ -269,7 +294,8 @@ class _DataABC(object):
         if self._isnonlinear:
             data = np.mean(np.abs(self.data),axis=3)
             # plot kx,ky spectrum in axis #4
-            plt.sca(ax.flat[3])
+            iax += 1
+            plt.sca(ax.flat[iax])
             kxkydata = np.mean(data, axis=2)
             plt.imshow(utils.log1010(kxkydata/kxkydata.max()).transpose(),
                        aspect='auto',
@@ -284,7 +310,8 @@ class _DataABC(object):
             plt.title(plot_title)
             plt.colorbar()
             # plot ky spectrum in axis #5
-            plt.sca(ax.flat[4])
+            iax += 1
+            plt.sca(ax.flat[iax])
             kydata = np.mean(data, axis=(0,2))
             plt.plot(self.kygrid, 
                      utils.log1010(kydata/kydata.max()),
@@ -296,7 +323,8 @@ class _DataABC(object):
             # plot x,y image in axis #6
             lx = self._processed_parameters['lx']
             ly = self._processed_parameters['ly']
-            plt.sca(ax.flat[5])
+            iax += 1
+            plt.sca(ax.flat[iax])
             plt.imshow(self._xyimage.transpose(),
                        origin='lower',
                        cmap=plt.cm.bwr,
