@@ -563,6 +563,7 @@ class GeneLinearScan(_GeneBaseClass):
             self.scandims = 1
             self.nscans = self.params['scan_dims']
         else:
+            print(self.path.as_posix())
             raise ValueError()
         self._populate_fields_moments_vsp()
         self._read_scanlog()
@@ -799,7 +800,7 @@ class GeneLinearScan(_GeneBaseClass):
                 time = nrg['time']
                 data = nrg[species]
                 scanvalue = nrg[scanparam]
-                ax.plot(time, data['nsq'], label='{}={:.3f},omi={:.3f}'.
+                ax.plot(time, data['n_sq'], label='{}={:.3f},omi={:.3f}'.
                         format(scanparam, scanvalue, self.omega['omi'][i]))
                 i += 1
             if len(ax.get_lines()) > 0:

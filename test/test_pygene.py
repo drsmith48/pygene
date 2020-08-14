@@ -18,7 +18,7 @@ base = pathlib.Path('/p/gene/drsmith/genecode')
 
 @pytest.fixture
 def lin():
-    simdir = pg.genework / 'linear-v01/pn60-eq21/kyscan01/scanfiles0000'
+    simdir = pg.genework / 'linear-v02/eq21/pn60/kyscan01/scanfiles0000'
     return pg.GeneLinearScan(simdir)
 
 
@@ -68,4 +68,5 @@ def test_nonlinear_vsp(nl):
 
 if __name__ == '__main__':
     pytest.main()
+    plt.close('all')
 #    pytest.main(['-k','field or moment'])
