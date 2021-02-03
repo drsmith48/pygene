@@ -13,7 +13,8 @@ plt.close('all')
 
 topdir = pygene.genework / 'linear-v02/eq21/pn50/kyscan01/scanfiles0000'
 sim = pygene.GeneLinearScan(topdir)
-# sim.plot_omega()
-# sim.plot_omega(all_plots=True)
+sim.plot_nsq()
+sim.plot_omega()
+sim.plot_omega(all_plots=True)
 
 sim.phi.plot_mode(scannum=1)

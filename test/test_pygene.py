@@ -13,12 +13,12 @@ import pygene as pg
 
 plt.close('all')
 
-base = pathlib.Path('/p/gene/drsmith/genecode')
+# base = pathlib.Path('/global/homes/d/drsmith/project-m64')
 
 
 @pytest.fixture
 def lin():
-    simdir = pg.genework / 'linear-v01/pn60-eq21/kyscan01/scanfiles0000'
+    simdir = pg.genework / 'linear-v02/eq21/pn60/kyscan01/scanfiles0000'
     return pg.GeneLinearScan(simdir)
 
 
@@ -44,7 +44,7 @@ def test_linear_vsp(lin):
 
 @pytest.fixture
 def nl():
-    return pg.GeneNonlinear(pg.genework / 'nl02/eq21-pn60/run-21114095/')
+    return pg.GeneNonlinear(pg.genework / 'nl08/eq21-pn50/run-77460')
 
 
 def test_nonlinear_timehistory(nl):
