@@ -68,4 +68,5 @@ def test_nonlinear_vsp(nl):
 
 if __name__ == '__main__':
     pytest.main()
+    plt.close('all')
 #    pytest.main(['-k','field or moment'])

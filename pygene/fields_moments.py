@@ -44,10 +44,10 @@ class _DataABC(object):
         self._get_parent_parameters(self._scannum)
         self._set_binary_configuration()
         self._set_path(self._scannum)
-        
+
     def __call__(self, *args, **kwargs):
         self._check_data(*args, **kwargs)
-        
+
     def _get_parent_parameters(self, scannum=None):
         if self._isnonlinear and scannum is None:
             paramsfile = self._parent.path / 'parameters.dat'
@@ -95,13 +95,13 @@ class _DataABC(object):
             fmt = '=idi'
         te = struct.Struct(fmt)
         tesize = te.size
-        self._binary_configuration = (intsize, entrysize, leapfld, 
+        self._binary_configuration = (intsize, entrysize, leapfld,
                                      nprt, npct, te, tesize)
 
     def _set_path(self, scannum=None):
         # implement in subclass
         pass
-        
+
     def _check_data(self, scannum=None, ivar=None, tind=None):
         if self._islinearscan:
             if scannum is None:
@@ -120,7 +120,7 @@ class _DataABC(object):
             tind = -1
         self._adjust_tind(tind)
         self._get_data()
-            
+
     def _read_time_array(self):
         intsize, entrysize, leapfld, nprt, npct, te, tesize = self._binary_configuration
         self.time = np.empty(0)
@@ -139,7 +139,7 @@ class _DataABC(object):
             tind = np.asarray([tind], dtype=np.int)
         tind[tind<0] += self.time.size
         self.tind = tind
-                    
+
     def _get_data(self):
         intsize, entrysize, leapfld, nprt, npct, te, tesize = self._binary_configuration
         data = np.empty((self.nx0,
@@ -215,7 +215,7 @@ class _DataABC(object):
         if self._islinearscan:
             plot_title += ' id {:d}'.format(self._scannum)
             # linear sim with nky0=1
-            fig, ax = plt.subplots(nrows=2, ncols=2, figsize=[7.333,5.5])
+            fig, ax = plt.subplots(nrows=1, ncols=4, figsize=[13,2.85])
         else:
             # nonlinear sim with nky0>1
             fig, ax = plt.subplots(nrows=2, ncols=3, figsize=[11,5.5])
@@ -259,7 +259,7 @@ class _DataABC(object):
             itwopi = 0
             ylim = plt.gca().get_ylim()
             while itwopi<=5:
-                plt.plot(np.ones(2)*itwopi, ylim, color='tab:gray', linestyle='--')
+                plt.plot(np.ones(2)*itwopi, ylim, color='tab:gray',linestyle='--')
                 if itwopi != 0:
                     plt.plot(-np.ones(2)*itwopi, ylim, color='tab:gray', linestyle='--')
                 itwopi += 2
@@ -313,7 +313,7 @@ class _DataABC(object):
             iax += 1
             plt.sca(ax.flat[iax])
             kydata = np.mean(data, axis=(0,2))
-            plt.plot(self.kygrid, 
+            plt.plot(self.kygrid,
                      utils.log1010(kydata/kydata.max()),
                      '-x')
             plt.xlabel('ky rho_s')
@@ -352,16 +352,16 @@ class Field(_DataABC):
         self.varname = field
         self.path = None
         super().__init__(ivar=field_names.index(field), parent=parent)
-        
+
     def _set_path(self, scannum=None):
         if self._islinearscan and scannum is not None:
             self.path = self._parent.path / 'field_{:04d}'.format(scannum)
         else:
             self.path = self._parent.path / 'field.dat'
-            
+
     def plot_mode(self, scannum=None, tind=None, save=False):
         super().plot_mode(scannum=scannum, tind=tind, save=save)
-        
+
 
 class Moment(_DataABC):
 
@@ -379,22 +379,24 @@ class Moment(_DataABC):
         self.fluxes = None
         self.flux_names = None
         super().__init__(ivar=self._imoment, parent=parent)
-        
+
     def _set_moment(self, moment=0):
         self._imoment = moment
         self.varname = self.species[0:3] + ' ' + mom_names[moment]
-        
+
     def _set_path(self, scannum=None):
         if self._islinearscan and scannum is not None:
             self.path = self._parent.path / 'mom_{}_{:04d}'.format(self.species, scannum)
         else:
             self.path = self._parent.path / 'mom_{}.dat'.format(self.species)
+        if not self.path.exists():
+            raise ValueError
 
     def plot_mode(self, scannum=None, moment=None, tind=None, save=False):
         if moment is not None:
             self._set_moment(moment=moment)
         super().plot_mode(scannum=scannum, ivar=moment, tind=tind, save=save)
-        
+
     def _calc_fluxes(self, tind=None):
         if tind is None:
             tind =np.arange(-1,-3*4,-4)
@@ -404,7 +406,7 @@ class Moment(_DataABC):
         self._check_data(tind=tind)
         self._parent.phi._check_data(tind=tind)
         phi = np.copy(self._parent.phi.data)
-        ky_tile = np.broadcast_to(self.kygrid.reshape((1,self.nky0,1,1)), 
+        ky_tile = np.broadcast_to(self.kygrid.reshape((1,self.nky0,1,1)),
                                   [self.nx0, self.nky0, self.nz0, tind.size])
         vex = -1j * ky_tile * phi
         self._parent.apar._check_data(tind=tind)
@@ -416,7 +418,7 @@ class Moment(_DataABC):
             moms.append(np.copy(self.data))
         nref = self._processed_parameters['nref']
         Tref = self._processed_parameters['Tref']
-        self.fluxes = np.empty_like(np.broadcast_to(vex[...,np.newaxis], 
+        self.fluxes = np.empty_like(np.broadcast_to(vex[...,np.newaxis],
                                     (self.nx0,self.nky0,self.nz0,self.tind.size,4)))
         self.flux_angles = np.empty_like(self.fluxes.real)
         self.flux_names = ['gamma_es', 'gamma_em', 'q_es', 'q_em']
@@ -434,7 +436,7 @@ class Moment(_DataABC):
         tmp2 = moms[3] + moms[4]
         self.fluxes[...,3] = np.conj(tmp2) * bx
         self.flux_angles[...,3] = np.angle(np.conj(tmp2)*(-apar))/np.pi
-        
+
     def plot_fluxes(self, save=False, **kwargs):
         if kwargs or self.fluxes is None:
             self._calc_fluxes(**kwargs)
