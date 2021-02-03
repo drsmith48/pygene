@@ -245,7 +245,6 @@ class _GeneBaseClass(object):
                 elif iline <= nsp:
                     rx = utils.re_nrgline.match(line)
                     values = []
-                    print(iline, rx)
                     for val in rx.groups():
                         if 'E' in val:
                             values.append(float(val))

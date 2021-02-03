@@ -1,19 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Created on Tue Jan 15 09:47:45 2019
 
-@author: drsmith
-"""
 
-import pathlib
 import matplotlib.pyplot as plt
 import pytest
 import pygene as pg
 
 plt.close('all')
-
-# base = pathlib.Path('/global/homes/d/drsmith/project-m64')
 
 
 @pytest.fixture
