@@ -1,3 +1,4 @@
+### makefile to build PETSC, SLEPC, and GENE for PU/PPPL Stellar system
 
 DEBUG = yes
 
