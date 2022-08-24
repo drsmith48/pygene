@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Created on Tue Jul 25 17:31:13 2017
-
-@author: drsmith
-"""
 
 import os
 import shutil
-import subprocess as sp
+import subprocess
+
 from jinja2 import Environment, FileSystemLoader
-from geqdsk import Geqdsk
+
+try:
+    from .geqdsk import Geqdsk
+except ImportError:
+    from geqdsk import Geqdsk
+
 
 def genesubmit(miller, beta_factor=None, coll_factor=None, **kwargs):
     """
@@ -23,19 +24,19 @@ def genesubmit(miller, beta_factor=None, coll_factor=None, **kwargs):
     # cd to GENE home directory
     initdir = os.path.abspath(os.curdir)
     os.chdir(os.environ['GENEHOME'])
-    ret = sp.run(['./newprob'], timeout=10)
+    ret = subprocess.run(['./newprob'], timeout=10)
     probdir = 'prob{:02d}'.format(ret.returncode)
     context = {}
     
-    # jobname
-    jobname = kwargs.pop('jobname',None)
+    # job_name
+    jobname = kwargs.pop('job_name',None)
     if jobname:
         print('Renaming {} to {}'.format(probdir, jobname))
         os.rename(probdir, jobname)
         probdir = jobname
     else:
         jobname = 'GENE-'+probdir
-    context['jobname'] = jobname
+    context['job_name'] = jobname
     
     # update context with miller values
     context.update(miller)
@@ -77,7 +78,7 @@ def genesubmit(miller, beta_factor=None, coll_factor=None, **kwargs):
         f.write(template.render(context))
     shutil.copyfile('parameters','parameters_orig')
     print('Submitting job in {}'.format(probdir))
-    ret = sp.run(['sbatch', 'launcher.cmd'], timeout=10)
+    ret = subprocess.run(['sbatch', 'launcher.cmd'], timeout=10)
     
     # cd to initial directory
     os.chdir(initdir)
@@ -95,7 +96,7 @@ def genebatch(scanparam=None, scanvalues=None, gfile=None,
     * Submit jobs to cluster
     """
     
-    geq = Geqdsk(gfile=gfile)
+    geq = Geqdsk(geqdsk_file=gfile)
     
     if scanparam in ['psinorm','rova','omt_factor']:
         # calc miller for each psinorm/rova/omt_factor value

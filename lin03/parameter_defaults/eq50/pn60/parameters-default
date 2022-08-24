@@ -1,0 +1,115 @@
+&parallelization
+/
+
+&box
+n_spec = 2
+nx0 = 64
+nky0 = 1
+nz0 = 128
+nv0 = 32
+nw0 = 8
+!kyng =   0.19150456    
+kymin = !kyng
+!n0_global = 1
+adapt_ly = F
+lv = 3.0
+lw = 9.0
+/
+
+&in_out
+diagdir = '.'
+read_checkpoint = F
+write_checkpoint = F
+istep_nrg = 100
+istep_energy = 100
+istep_omega = 100
+istep_field = 10000
+istep_mom = 10000
+istep_vsp = 10000
+/
+
+&general
+nonlinear = F
+comp_type = 'IV'
+bpar = F
+delzonal = F
+delzonal_fields = F
+delzonal_bpar = F
+del_phi = F
+! 48hr = 170000  24hr = 85000  12hr = 42500
+timelim = 42500
+simtimelim = 400
+omega_prec = 1E-3
+ntimesteps = 10000000
+calc_dt = T
+beta = -1
+coll = -1
+collision_op = 'landau'
+init_cond = 'alm'
+hyp_z = 20
+hyp_v = 0.20
+hypz_opt =   F
+hypz_compensation =   T
+/
+
+&nonlocal_x
+/
+
+&external_contr
+/
+
+&geometry
+magn_geometry = "miller"
+trpeps  =    0.6149
+q0      =     3.279
+!shat    =  0.009599
+shat    =  0.25
+drR     =   -0.1316
+kappa   =     2.744
+s_kappa =   -0.3151
+delta   =     0.418
+s_delta =   0.02759
+zeta    =   0.06587
+s_zeta  =    0.1023
+minor_r =         1
+major_R =      1.26
+amhd = -1
+rhostar = -1
+dpdx_pm = -2
+dpdx_term = "full_drift"
+!curv_factor = 1.0
+/
+
+&species
+name = 'electrons'
+mass = 2.7244E-4
+charge = -1
+temp = 1.0
+dens = 1.0
+omt = 4.629
+omn = 1.984
+/
+
+&species
+name = 'ions'
+mass = 1.0
+charge = 1
+temp = 1.0
+dens = 1.0
+omt = 4.629
+omn = 1.984
+/
+
+&units
+Tref = 0.1
+nref = 0.554
+Bref = 0.03142
+Lref = 0.273
+mref = 2.0
+! db/dpsinorm  = -0.0053
+! amhd         =    0.3702
+! dpdx_pm      = 2.991
+! beta         = 0.2261
+! coll         = 0.004854
+/
+

@@ -1,5 +1,5 @@
 #!/bin/tcsh
-#SBATCH -J {{ jobname|default('GENE', true) }}
+#SBATCH -J {{ job_name|default('GENE', true) }}
 #SBATCH -p {{ partition|default('kruskal', true) }}
 #SBATCH --time={{ walltime|default('8:0:00', true) }}
 #SBATCH --ntasks={{ ntasks|default('64', true) }}

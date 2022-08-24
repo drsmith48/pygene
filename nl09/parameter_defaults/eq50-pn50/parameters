@@ -1,0 +1,129 @@
+&parallelization
+n_procs_s =   1
+n_procs_v =   2
+n_procs_w =   8
+n_procs_x =   1
+n_procs_y =   1
+n_procs_z =  16
+n_procs_sim =    256
+/
+
+&box
+n_spec = 1
+nx0 = 256
+nky0 = 16
+nz0 = 32
+nv0 = 32
+nw0 = 8
+
+kymin = 0.21198791
+adapt_lx = F
+lx = 50
+lv = 3.0
+lw = 9.0
+/
+
+&in_out
+diagdir = '.' 
+read_checkpoint = T
+write_checkpoint = T
+istep_nrg    = 100
+istep_energy = 200
+istep_omega  = 200
+istep_field  = 1000
+istep_mom    = 1000
+istep_vsp    = 1000
+istep_schpt  = 1000
+/
+
+&general
+nonlinear = T
+comp_type = 'IV'
+arakawa_zv_order = 4
+bpar = F
+delzonal = F
+delzonal_fields = F
+
+! 48hr = 170000  24hr = 85000  12hr = 42500
+timelim = 42600
+simtimelim = 10000
+omega_prec = 1.0E-3
+ntimesteps=10000000
+
+calc_dt = T
+timescheme = 'RK4'
+courant    = 1
+
+beta = -1
+coll = -1
+collision_op = 'landau'
+coll_cons_model = 'default'
+coll_f_fm_on = F
+hyp_z = 50
+hyp_v = 0.20
+hypz_opt = F
+n_ev = 1
+/
+
+&nonlocal_x
+/
+
+&external_contr
+/
+
+&geometry
+magn_geometry = "miller"
+trpeps  =     0.563
+q0      =     3.359
+shat    =   -0.4565
+drR     =   -0.1082
+kappa   =     2.815
+s_kappa =   -0.2954
+delta   =    0.4159
+s_delta =   0.03266
+zeta    =   0.05714
+s_zeta  =    0.1094
+minor_r =         1
+major_R =     1.267
+amhd = -1
+rhostar = -1
+dpdx_pm = -2
+dpdx_term = "full_drift"
+/
+
+&species
+name = 'electrons'
+mass = 2.7244E-4
+charge = -1
+
+temp = 1.0
+dens = 1.0
+omt = 2.89
+omn = 1.239
+/
+
+species
+name = 'ions'
+mass = 1.0
+charge = 1
+
+temp = 1.0
+dens = 1.0
+omt = 2.89
+omn = 1.239
+/
+
+&units
+Tref = 0.1
+nref = 0.7475
+Bref = 0.03312
+Lref = 0.273
+mref = 2.0
+
+! db/dpsinorm  = -0.0079
+! amhd         =   -1.3733
+! dpdx_pm      = 2.268
+! beta         = 0.2746
+! coll         = 0.006478
+/
+

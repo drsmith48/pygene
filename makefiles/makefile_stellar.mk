@@ -16,14 +16,13 @@ ifeq ($(DEBUG), yes)
 else
 	PETSC_ARCH = impi_2021.3.1_opt
 	PETSC_OPT_FLAGS = --COPTFLAGS=-Ofast --CXXOPTFLAGS=-Ofast --FOPTFLAGS=-Ofast
-	EXEC = gene_$(MACHINE)_opt
+	EXEC = gene_$(MACHINE)
 	WITH_DEBUGGING = 0
 endif
 
 .PHONY: petsc slepc gene
 
 gene: slepc
-	#rm -f $(GENECODE_DIR)/bin/*.mk
 	cd $(GENECODE_DIR) && $(MAKE) PETSC_ARCH=$(PETSC_ARCH) DEBUG=$(DEBUG) EXEC=$(EXEC) clean
 	cd $(GENECODE_DIR) && $(MAKE) PETSC_ARCH=$(PETSC_ARCH) DEBUG=$(DEBUG) EXEC=$(EXEC) -j16
 	cp -f $(GENECODE_DIR)/bin/stellar.mk $(GENECODE_DIR)/makefiles/stellar
