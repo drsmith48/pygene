@@ -70,7 +70,7 @@ class LinearScan(object):
             if np.all([item.is_integer() for item in column]):
                 scanlog_df = scanlog_df.astype({var:int})
         cols = scanlog_df.columns.tolist()
-        for key_vars in ['nz0', 'hyp_z', 'nky0']:
+        for key_vars in ['nz0', 'hyp_z', 'kymin']:
             if key_vars in cols:
                 cols.insert(0, cols.pop(cols.index(key_vars)))
         scanlog_df = scanlog_df[cols]
@@ -108,14 +108,15 @@ class LinearScan(object):
                     plt.plot(sub_df[self.scan_vars[0]], sub_df[quantity], 'x-',
                              label=f"{self.scan_vars[1]}={v2}")
             else:
-                pass
+                plt.plot(self.scanlog_df[self.scan_vars[0]], self.scanlog_df[quantity], 'x-')
             if logx:
                 plt.xscale('log')
             ylim = np.array(plt.gca().get_ylim())
             ylim[0] = np.min([0, ylim[0]])
             ylim[1] = np.max([0, ylim[1]])
             plt.ylim(ylim)
-            plt.legend(fontsize='small')
+            if self.n_vars > 1:
+                plt.legend(fontsize='small')
         plt.tight_layout()
 
     def _get_mode(self, index: int = None) -> dict:
@@ -221,12 +222,12 @@ class LinearScan(object):
         else:
             if isinstance(index, int):
                 index = [index]
-            sub_df = self.scanlog_df.index[index]
-        for index in sub_df.index:
+            sub_df = self.scanlog_df.loc[index, :]
+        for row in sub_df.index:
             row_text = ', '.join(
-                [f"{var_name}={self.scanlog_df.loc[index, var_name]}" for var_name in self.scan_vars]
+                [f"{var_name}={self.scanlog_df.loc[row, var_name]}" for var_name in self.scan_vars]
             )
-            fields_dict, ballooning_grid = self._get_mode(index=index)
+            fields_dict, ballooning_grid = self._get_mode(index=row)
             if fields is None:
                 fields = list(fields_dict.keys())
             elif isinstance(fields, str):
@@ -240,7 +241,7 @@ class LinearScan(object):
             for i_field, field_name in enumerate(fields):
                 for i_col in [0,1]:
                     plt.sca(axes.flat[2*i_field + i_col])
-                    plt.title(f"{self.short_path} | Run index {index:04d}")
+                    plt.title(f"{self.short_path} | Run index {row:04d}")
                     plt.plot(
                         ballooning_grid,
                         np.real(fields_dict[field_name]),
@@ -266,10 +267,10 @@ class LinearScan(object):
 
 
 if __name__=='__main__':
-    dir = Path.home()/'gene/tigress/lin03/eq21/pn60/nzhypz'
+    dir = Path.home()/'gene/tigress/lin03/eq21/pn50/ky'
     scan = LinearScan(
         directory=dir,
     )
     scan.plot_omega(logx=True)
-    scan.plot_mode(hyp_z=2)
+    scan.plot_mode(index=[8,12])
     plt.show()

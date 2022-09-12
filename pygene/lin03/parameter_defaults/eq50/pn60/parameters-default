@@ -8,7 +8,7 @@ nky0 = 1
 nz0 = 128
 nv0 = 32
 nw0 = 8
-!kyng =   0.25664576    
+!kyng =   0.19150456    
 kymin = !kyng
 !n0_global = 1
 adapt_ly = F
@@ -38,15 +38,15 @@ delzonal_bpar = F
 del_phi = F
 ! 48hr = 170000  24hr = 85000  12hr = 42500
 timelim = 42500
-simtimelim = 400
+simtimelim = 200
 omega_prec = 1E-3
-ntimesteps = 10000000
+ntimesteps = 800000
 calc_dt = T
 beta = -1
 coll = -1
 collision_op = 'landau'
 init_cond = 'alm'
-hyp_z = 20
+hyp_z = 60
 hyp_v = 0.20
 hypz_opt =   F
 hypz_compensation =   T
@@ -60,19 +60,19 @@ hypz_compensation =   T
 
 &geometry
 magn_geometry = "miller"
-trpeps  =     0.472
-q0      =     3.369
-!shat    =   0.03172
-shat    =   0.2
-drR     =   -0.4221
-kappa   =      2.94
-s_kappa =   -0.2139
-delta   =    0.4824
-s_delta =    0.1196
-zeta    =   0.06072
-s_zeta  =    0.1603
+trpeps  =    0.6149
+q0      =     3.279
+!shat    =  0.009599
+shat    =  0.25
+drR     =   -0.1316
+kappa   =     2.744
+s_kappa =   -0.3151
+delta   =     0.418
+s_delta =   0.02759
+zeta    =   0.06587
+s_zeta  =    0.1023
 minor_r =         1
-major_R =     1.392
+major_R =      1.26
 amhd = -1
 rhostar = -1
 dpdx_pm = -2
@@ -84,32 +84,32 @@ dpdx_term = "full_drift"
 name = 'electrons'
 mass = 2.7244E-4
 charge = -1
-temp = 1.0
-dens = 1.0
-omt = 1.676
-omn = 0.7183
+temp = 1.0  ! electrons
+dens = 1.0  ! electrons
+omt = 4.629  ! electrons
+omn = 1.984  ! electrons
 /
 
 &species
 name = 'ions'
 mass = 1.0
 charge = 1
-temp = 1.0
-dens = 1.0
-omt = 1.676
-omn = 0.7183
+temp = 1.0  ! ions
+dens = 1.0  ! ions
+omt = 4.629  ! ions
+omn = 1.984  ! ions
 /
 
 &units
 Tref = 0.1
-nref = 0.925
-Bref = 0.02875
-Lref = 0.2608
+nref = 0.554
+Bref = 0.03142
+Lref = 0.273
 mref = 2.0
-! db/dpsinorm  = 0.0199
-! amhd         =   34.1204
-! dpdx_pm      = 2.16
-! beta         = 0.4511
-! coll         = 0.007599
+! db/dpsinorm  = -0.0053
+! amhd         =    0.3702
+! dpdx_pm      = 2.991
+! beta         = 0.2261
+! coll         = 0.004854
 /
 

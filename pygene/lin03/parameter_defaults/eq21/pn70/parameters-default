@@ -38,15 +38,15 @@ delzonal_bpar = F
 del_phi = F
 ! 48hr = 170000  24hr = 85000  12hr = 42500
 timelim = 42500
-simtimelim = 400
+simtimelim = 200
 omega_prec = 1E-3
-ntimesteps = 10000000
+ntimesteps = 800000
 calc_dt = T
 beta = -1
 coll = -1
 collision_op = 'landau'
 init_cond = 'alm'
-hyp_z = 20
+hyp_z = 60
 hyp_v = 0.20
 hypz_opt =   F
 hypz_compensation =   T
@@ -83,20 +83,20 @@ dpdx_term = "full_drift"
 name = 'electrons'
 mass = 2.7244E-4
 charge = -1
-temp = 1.0
-dens = 1.0
-omt = 7.055
-omn = 3.024
+temp = 1.0  ! electrons
+dens = 1.0  ! electrons
+omt = 7.055  ! electrons
+omn = 3.024  ! electrons
 /
 
 &species
 name = 'ions'
 mass = 1.0
 charge = 1
-temp = 1.0
-dens = 1.0
-omt = 7.055
-omn = 3.024
+temp = 1.0  ! ions
+dens = 1.0  ! ions
+omt = 7.055  ! ions
+omn = 3.024  ! ions
 /
 
 &units
